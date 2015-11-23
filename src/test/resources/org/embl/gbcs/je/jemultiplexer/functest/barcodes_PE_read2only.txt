@@ -1,0 +1,4 @@
+sample1 GTATAG sample1_1_PE.txt sample1_2_PE.txt
+sample2 TCCGTC sample2_1_PE.txt sample2_2_PE.txt
+sample3 TGGTCA sample3_1_PE.txt sample3_2_PE.txt
+sample4 CACTGT sample4_1_PE.txt sample4_2_PE.txt

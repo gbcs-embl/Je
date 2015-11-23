@@ -1,0 +1,283 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+	<groupId>Je</groupId>
+	<artifactId>Je</artifactId>
+	<version>1.0</version>
+	<name>Je</name>
+	<description>Je provides command line utilities to deal with barcoded FASTQ files with or without Unique Molecular Index (UMI)</description>
+
+	<licenses>
+		<license>
+			<name>GPLv3</name>
+			<url><![CDATA[http://www.gnu.org/copyleft/gpl.html]]></url>
+		</license>
+	</licenses>
+
+	<properties>
+		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+		<log.level>INFO</log.level>
+	</properties>
+
+	<!-- Building is a little tricky due to the custom picard. Each time you 
+		modify picard (meaning you have a git clone of both picard and htsjdk), you 
+		need to build picard with ant i.e. 'ant build' This creates jars in the dist 
+		picard/folder and the 2 important ones are : (1) picard.jar (2) htsjdk_lib_dir/htsjdk-1.140.jar 
+		You then need to add these in your local mvn repo so that they are found 
+		by maven, this is performed by the src/shell/install-picard-deps-in-mvn-repos_from-git.sh 
+		(you need to adapt path in there first !) The script also takes care of replacing 
+		the jars in Je/lib to make sure we always distribute with the right custom 
+		picard jars You can now build Je ! -->
+
+
+
+	<build>
+
+		<resources>
+			<resource>
+				<directory>${basedir}/src/main/java</directory>
+				<includes>
+					<include>**/*.java</include>
+				</includes>
+			</resource>
+			<!-- Resource def needed to overwrite properties dynamically in eg log4j.xml -->
+
+			<resource>
+				<directory>src/main/resources</directory>
+				<includes>
+					<include>**/*.*xml</include>
+					<include>**/*.*properties</include>
+				</includes>
+				<filtering>true</filtering>
+			</resource>
+
+		</resources>
+
+		<plugins>
+
+			<!-- Define a plugin that embeds all dependences (jars) in the final jar -->
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-assembly-plugin</artifactId>
+				<configuration>
+					<archive>
+						<manifest>
+							<mainClass>org.embl.gbcs.je.Je</mainClass>
+						</manifest>
+					</archive>
+					<descriptorRefs>
+						<descriptorRef>jar-with-dependencies</descriptorRef>
+					</descriptorRefs>
+
+				</configuration>
+				<!-- Bind to packaging phase: the package phase will now produce 2 jars 
+					: - the 'usual' one - one with all dependencies bundled -->
+				<executions>
+					<execution>
+						<phase>package</phase>
+						<goals>
+							<goal>single</goal>
+						</goals>
+					</execution>
+				</executions>
+			</plugin>
+		</plugins>
+	</build>
+
+
+	<profiles>
+		<profile>
+			<!-- Profile to get a test jar for testing against the embase dev db -->
+			<id>test</id>
+			<build>
+				<plugins>
+					<plugin>
+						<groupId>org.codehaus.mojo</groupId>
+						<artifactId>properties-maven-plugin</artifactId>
+						<version>1.0.0</version>
+						<executions>
+							<execution>
+								<phase>initialize</phase>
+								<goals>
+									<goal>read-project-properties</goal>
+								</goals>
+								<configuration>
+									<files>
+										<file>config/test.properties</file>
+									</files>
+								</configuration>
+							</execution>
+						</executions>
+					</plugin>
+					<plugin>
+						<groupId>org.apache.maven.plugins</groupId>
+						<artifactId>maven-assembly-plugin</artifactId>
+						<configuration>
+							<finalName>je_bundle-TEST</finalName>
+							<appendAssemblyId>false</appendAssemblyId>
+							<archive>
+								<manifestEntries>
+									<Implementation-Version>${project.version}</Implementation-Version>
+								</manifestEntries>
+							</archive>
+						</configuration>
+					</plugin>
+				</plugins>
+			</build>
+
+		</profile>
+		<profile>
+			<!-- Profile to get the production jar for EMBL -->
+			<id>embl</id>
+			<build>
+				<plugins>
+					<plugin>
+						<groupId>org.codehaus.mojo</groupId>
+						<artifactId>properties-maven-plugin</artifactId>
+						<version>1.0.0</version>
+						<executions>
+							<execution>
+								<phase>initialize</phase>
+								<goals>
+									<goal>read-project-properties</goal>
+								</goals>
+								<configuration>
+									<files>
+										<file>config/embl.properties</file>
+									</files>
+								</configuration>
+							</execution>
+						</executions>
+					</plugin>
+					<plugin>
+						<groupId>org.apache.maven.plugins</groupId>
+						<artifactId>maven-assembly-plugin</artifactId>
+						<configuration>
+							<finalName>je_embl_${project.version}_bundle</finalName>
+							<appendAssemblyId>false</appendAssemblyId>
+							<archive>
+								<manifestEntries>
+									<Implementation-Version>${project.version}</Implementation-Version>
+								</manifestEntries>
+							</archive>
+						</configuration>
+					</plugin>
+				</plugins>
+			</build>
+		</profile>
+
+		<profile>
+			<!-- Profile to get the production jar for public use -->
+			<id>public</id>
+			<build>
+				<plugins>
+					<plugin>
+						<groupId>org.codehaus.mojo</groupId>
+						<artifactId>properties-maven-plugin</artifactId>
+						<version>1.0.0</version>
+						<executions>
+							<execution>
+								<phase>initialize</phase>
+								<goals>
+									<goal>read-project-properties</goal>
+								</goals>
+								<configuration>
+									<files>
+										<file>config/public.properties</file>
+									</files>
+								</configuration>
+							</execution>
+						</executions>
+					</plugin>
+					<plugin>
+						<groupId>org.apache.maven.plugins</groupId>
+						<artifactId>maven-assembly-plugin</artifactId>
+						<configuration>
+							<finalName>je_${project.version}_bundle</finalName>
+							<appendAssemblyId>false</appendAssemblyId>
+							<archive>
+								<manifestEntries>
+									<Implementation-Version>${project.version}</Implementation-Version>
+								</manifestEntries>
+							</archive>
+						</configuration>
+					</plugin>
+				</plugins>
+			</build>
+
+		</profile>
+	</profiles>
+
+
+	<dependencies>
+
+		<!-- <dependency> -->
+		<!-- <groupId>net.sf</groupId> -->
+		<!-- <artifactId>picard</artifactId> -->
+		<!-- <version>1.140</version> -->
+		<!-- </dependency> -->
+		<!-- <dependency> -->
+		<!-- <groupId>net.sf</groupId> -->
+		<!-- <artifactId>htsjdk</artifactId> -->
+		<!-- <version>1.140</version> -->
+		<!-- </dependency> -->
+
+		<dependency>
+			<groupId>net.sf</groupId>
+			<artifactId>picard</artifactId>
+			<version>1.140custom</version>
+
+		</dependency>
+		<dependency>
+			<groupId>net.sf</groupId>
+			<artifactId>htsjdk</artifactId>
+			<version>1.140custom</version>
+
+		</dependency>
+
+
+		<dependency>
+			<groupId>org.slf4j</groupId>
+			<artifactId>slf4j-api</artifactId>
+			<version>1.7.7</version>
+		</dependency>
+		<dependency>
+			<groupId>org.slf4j</groupId>
+			<artifactId>slf4j-log4j12</artifactId>
+			<version>1.7.7</version>
+		</dependency>
+
+		<dependency>
+			<groupId>mysql</groupId>
+			<artifactId>mysql-connector-java</artifactId>
+			<version>5.1.25</version>
+		</dependency>
+		<dependency>
+			<groupId>org.embl.gbcs.embase</groupId>
+			<artifactId>jembase_api</artifactId>
+			<version>1.0</version>
+		</dependency>
+
+		<dependency>
+			<groupId>org.embl.cg.utilitytools</groupId>
+			<artifactId>ut_utils</artifactId>
+			<version>0.1-SNAPSHOT</version>
+		</dependency>
+
+
+		<dependency>
+			<groupId>org.apache.commons</groupId>
+			<artifactId>commons-lang3</artifactId>
+			<version>3.3.2</version>
+		</dependency>
+
+		<dependency>
+			<groupId>junit</groupId>
+			<artifactId>junit</artifactId>
+			<version>4.11</version>
+			<scope>test</scope>
+		</dependency>
+	</dependencies>
+
+
+</project>

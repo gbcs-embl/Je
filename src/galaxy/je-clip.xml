@@ -1,0 +1,245 @@
+<tool id="je-clip" name="Je-Clip" version="1.0">
+    <description>clips Unique Molecular Identifiers (UMIs) from fastq files</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <stdio>
+        <exit_code range="1:" level="fatal" description="Tool exception" />
+    </stdio>
+    <version_command>echo '1.0'</version_command>
+    <command interpreter="bash">
+<![CDATA[
+    je clip
+
+    ## Fastq inputs
+    @single_or_paired_cmd@
+    #if str( $library.type ) != "single":
+        BPOS=${library.BPOS}
+    #end if
+
+    @common_options_cmd@
+    @barcode_len_cmd@
+    ADD=${ADD}
+    #if str($ADD) == "false":
+        BARCODE_RESULT_FILENAME=$BARCODE_RESULT_FILENAME
+    #end if
+
+    OF1=${OF1}
+    #if str( $library.type ) != "single":
+        OF2=${OF2}
+    #end if
+
+    FORCE=true
+]]>
+    </command>
+    <inputs>
+        <!-- single/paired -->
+        <expand macro="single_or_paired_general">
+            <param name="BPOS" type="select" label="Barcode read position (BPOS)" help="where are the barcodes.">
+                <option value="READ_1" selected="true">READ_1 (beginning of read from the first fastq file)</option>
+                <option value="READ_2">READ_2 (beginning of read from the second fastq file)</option>
+                <option value="BOTH">BOTH (beginning of both reads)</option>
+            </param>
+        </expand>
+        <expand macro="barcode_len_option"/>
+        <param name="ADD" type="boolean"
+            label="Add matched barcode at the end of the read header (ADD)"
+            truevalue="true"
+            falsevalue="false"
+            checked="true"
+        />
+
+        <expand macro="common_options"/>
+
+
+    </inputs>
+    <outputs>
+        <data name="BARCODE_RESULT_FILENAME" format="tabular" label="Je-Clipped Barcodes"/>
+        <data name="OF1" format_source="input_1" label="Je-Clipped {on_string}"/>
+        <data name="OF2" format_source="input_1" label="Je-Clipped {on_string}">
+            <filter>(type != "single")</filter>
+        </data>
+    </outputs>
+
+    <tests>
+        <test>
+            <!-- simple test on single end data -->
+            <param name="type" value="single"/>
+            <param name="input_1" value="file_1_sequence.txt" ftype="fastqsanger"/>
+            <param name="LEN" value="6"/>
+            <param name="ADD" value="false"/>
+            <output name="BARCODE_RESULT_FILENAME" file="clip_barcode_result_file.txt"/>
+            <output name="OF1" file="clip_dataset1_SE.fastq"/>
+        </test>
+        <test>
+            <!-- more complex test on paired end data with different barcode for fwd/rev -->
+            <param name="type" value="paired"/>
+            <param name="input_1" value="file_1_sequence.txt" ftype="fastqsanger"/>
+            <param name="input_2" value="file_2_sequence.txt" ftype="fastqsanger"/>
+            <param name="LEN" value="6"/>
+            <param name="BPOS" value="BOTH"/>
+            <output name="OF1" file="clip_dataset1_PE.fastq"/>
+            <output name="OF2" file="clip_dataset2_PE.fastq"/>
+        </test>
+    </tests>
+
+
+  <help>
+<![CDATA[
+**What it does**
+
+Je clip: Clips barcodes or Unique Molecular Identifiers (UMIs) from the input fastq files
+Input files are fastq files, and can be in gzip compressed format (end in .gz).
+
+Author: Charles Girardot  (charles.girardot@embl.de).
+
+Wrapper by: Jelle Scholtalbers (jelle.scholtalbers@embl.de).
+
+------
+
+**Know what you are doing**
+
+.. class:: warningmark
+
+You will want to read the `documentation`__.
+
+  .. __: http://gbcs.embl.de/portal/Je
+
+------
+
+**Parameter list**
+
+This is an exhaustive list of options::
+
+  FASTQ_FILE1=File
+  F1=File
+
+    Input fastq file (optionally gzipped) for single end data, or first read in paired end data.
+    Required.
+
+  FASTQ_FILE2=File
+  F2=File
+
+    Input fastq file (optionally gzipped) for the second read of paired end data.
+    Default value: null.
+
+  BCLEN=String
+  LEN=String
+
+    Length of the barcode sequences. When BARCODE_READ_POS == BOTH, two distinct lengths can
+    be provided using the syntax LEN=X:Z where X and Z are 2 integers representing the
+    barcode length for read_1 and read_2 respectively.
+    Required.
+
+  BARCODE_READ_POS=BarcodePosition
+  BPOS=BarcodePosition
+
+    Reads containing the sequence (i.e. UMIs) to clip:
+      READ_1 (beginning of read from FASTQ_FILE_1),
+      READ_2 (beginning of read from FASTQ_FILE_2),
+      BOTH (beginning of both reads).
+
+    Automatically set to READ_1 in single end mode and BOTH in paired end mode. Actually not
+    relevant for single end data
+    Default value: BOTH. This option can be set to 'null' to clear the default value.
+    Possible values: {READ_1, READ_2, BOTH, NONE}
+
+  ADD_BARCODE_TO_HEADER=Boolean
+  ADD=Boolean
+
+    Should clipped UMIs be added to the read header (at the end); apply to both barcodes when
+    BPOS=BOTH.
+    If ADD=true, the string ':barcode' is added at the end of the read header with a ':'
+    added only if current read header does not end with ':'.
+    If both reads of the pair contains a UMI (i.e. BARCODE_READ_POS == BOTH), the UMI from
+    the second read is also added to the read header.
+    Else, the header of the read without UMI receives the UMI from the other read.
+    For example:
+      @D3FCO8P1:178:C1WLBACXX:7:1101:1836:1965 2:N:0:
+    becomes
+      @D3FCO8P1:178:C1WLBACXX:7:1101:1836:1965 2:N:0:BARCODE
+    Default value: true. This option can be set to 'null' to clear the default value.
+    Possible values: {true, false}
+
+  ENSURE_IDENTICAL_HEADER_NAMES=Boolean
+  SAME_HEADERS=Boolean
+
+    Makes sure headers of both reads of a pair are identical.
+    Read name (or headers) will follow the pattern (for both reads of a pair):
+      @D3FCO8P1:178:C1WLBACXX:7:1101:1836:1965 CLIPPED_SEQ_FROMREAD1:CLIPPED_SEQ_FROMREAD2
+    This option only makes sense in paired end mode and ADD=true.Some (if not all) mappers
+    will indeed complain when read headers of a read pair are not identical.
+    When SAME_HEADERS=FALSE and the RCHAR is used, read headers look like this:
+      HISEQ:44:C6KC0ANXX:5:1101:1491:1994:1:N:0:TGGAGTAG
+      HISEQ:44:C6KC0ANXX:5:1101:1491:1994:3:N:0:CGTTGTAT
+
+    SAME_HEADERS=true will instead generates the following identical header for both reads :
+      HISEQ:44:C6KC0ANXX:5:1101:1491:1994:TGGAGTAG:CGTTGTAT
+    Note that we also clipped the useless '1:N:0' amd '3:N:0' as they also result in
+    different headers
+    Important : this option will force RCHAR=: UNLESS you specify RCHAR=null ; in which case
+    a space will be preserved i.e.:
+      HISEQ:44:C6KC0ANXX:5:1101:1491:1994 TAGAACAC:TGGAGTAG:CGTTGTAT
+
+    Default value: true.
+    This option can be set to 'null' to clear the default value. Possible values: {true,
+    false}
+
+  READ_NAME_REPLACE_CHAR=String
+  RCHAR=String
+
+    Replace spaces in read name/header using provided character.
+    This is needed when you need to retain ADDed barcode in read name/header during mapping
+    as everything after space in read name is usually clipped in BAM files.
+    For example, with RCHAR=':':
+      @D3FCO8P1:178:C1WLBACXX:7:1101:1836:1965 1:N:0:
+    becomes
+      @D3FCO8P1:178:C1WLBACXX:7:1101:1836:1965:1:N:0:BARCODE
+
+    Default value: ':'. This option can be set to 'null' to clear the default value.
+
+  XTRIMLEN=String
+  XT=String
+
+    Optional extra number of base(s) to be trimmed right after the barcode. These extra bases
+    are not added to read headers.
+    When running paired-end, two distinct values can be given using the syntax XT=X:Z where X
+    and Z are 2 integers to use for read_1 and read_2 respectively. Note that even when
+    BPOS=READ_1 or BPOS=READ_2, a X:Y synthax can be given to trim the read w/o barcode to
+    end up with reads of identical length (note that this can also be operated using ZT). If
+    a unique value is given, e.g. XT=1, while running paired-end the following rule applies :
+      (1) BPOS=READ_1 or BPOS=READ_2, no trim is applied at the read w/o barcode
+      (2) BPOS=BOTH, the value is used for both reads.
+    Note that XT=null is like XT=0.
+    Default value: 0. This option can be set to 'null' to clear the default value.
+
+  ZTRIMLEN=String
+  ZT=String
+
+    Optional extra number of bases to be trimmed from the read end i.e. 3' end. These extra
+    bases are not added to read headers.
+    When running paired-end, two distinct values can be given here using the syntax ZT=X:Z
+    where X and Z are 2 integers to use for read_1 and read_2 respectively. Note that even
+    when BPOS=READ_1 or BPOS=READ_2, a X:Y synthax can be given to trim the read w/o barcode
+    as to end up with reads of the same length (note that this can also be operated using
+    XT). Note that if a single value is passed, the value always applies to both reads in
+    paired-end mode without further consideration.
+
+    Default value: 0. This option can be set to 'null' to clear the default value.
+
+  BARCODE_RESULT_FILENAME=String
+  BF=String
+
+    Optional file name where to write clipped barcodes, default name is clipped_barcodes.txt.
+    This file is automatically created if ADD=FALSE i.e. even if this option is not provided
+    by user (and always created if this option is given).
+    File format is tab delimited with:
+    ``read header (col 1)   barcode from read_1 (col 2) barcode quality from read_1 (col 2)``
+    + barcode + quality from read_2 (col 4 and 5 respectively) when relevant.
+    Can either be a name (in which case the file will be created in the output dir) or a full path.
+    Default value: null.
+
+]]>
+  </help>
+
+</tool>

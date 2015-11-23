@@ -1,0 +1,4 @@
+sample1	AAAAAA	file1.txt
+sample1	TTTTTT	file1.txt
+sample2	CCCCCC|GGGGGG	file2.txt
+

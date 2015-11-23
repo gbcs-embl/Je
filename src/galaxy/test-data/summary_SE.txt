@@ -1,0 +1,7 @@
+Processed_read_pairs	25
+Assigned	25
+Unassigned_read_pairs	0
+sample1	6
+sample4	6
+sample3	6
+sample2	7

@@ -1,0 +1,423 @@
+<tool id="je-markdupes" name="Je-MarkDuplicates" version="1.0">
+    <description>to filter BAM files for read duplicates taking UMIs into account</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <stdio>
+        <exit_code range="1:" level="fatal" description="Tool exception" />
+    </stdio>
+    <version_command>echo '1.0'</version_command>
+
+    <command interpreter="bash">
+<![CDATA[
+    je markdupes
+
+    ## picard MarkDuplicates defaults
+    INPUT="${inputFile}"
+    OUTPUT="${outFile}"
+
+    METRICS_FILE="${metrics_file}"
+
+    REMOVE_DUPLICATES="${remove_duplicates}"
+    ASSUME_SORTED="${assume_sorted}"
+
+    #for $element in $adv_options.comments:
+        COMMENT="${element.comment}"
+    #end for
+
+    DUPLICATE_SCORING_STRATEGY="${adv_options.duplicate_scoring_strategy}"
+
+    #import pipes
+    READ_NAME_REGEX=${ pipes.quote( str( $adv_options.read_name_regex ) ) or "''" }
+    OPTICAL_DUPLICATE_PIXEL_DISTANCE="${adv_options.optical_duplicate_pixel_distance}"
+
+    VALIDATION_STRINGENCY="${adv_options.validation_stringency}"
+    QUIET=true
+    VERBOSITY=ERROR
+
+    ## Je Markdupes Specific
+    MM=${MM}
+    #if str($MAX_N) != "":
+        MAX_N=${MAX_N}
+    #end if
+    @barcode_option_cmd@
+
+    #for $i, $option in enumerate( $repeat_slots )
+        #if str($option.SLOTS) != "":
+            SLOTS=${option.SLOTS}
+        #end if
+    #end for
+
+    #if str($trim_conditional.T) == "true":
+        T=${trim_conditional.T}
+        #for $i, $option in enumerate( $trim_conditional.repeat_tslots )
+            #if str($option.TSLOTS) != "":
+                TSLOTS=${option.TSLOTS}
+            #end if
+        #end for
+    #end if
+]]>
+    </command>
+    <configfiles>
+        <expand macro="barcode_config_file"></expand>
+    </configfiles>
+
+    <inputs>
+        <param format="bam" name="inputFile" type="data" label="Select SAM/BAM dataset"
+            help="If empty, upload or import a SAM/BAM dataset"/>
+        <param name="remove_duplicates" type="boolean" label="If true do not write duplicates to the output file
+            instead of writing them with appropriate flags set" help="REMOVE_DUPLICATES; default=False"/>
+        <param name="assume_sorted" type="boolean" label="Assume the input file is already sorted" checked="true"
+            truevalue="true" falsevalue="false" help="ASSUME_SORTED; default=True"/>
+        <conditional name="barcodes">
+            <param name="barcode_list_type_con" type="select" label="Do you have a predefined list of UMIs">
+                <option value="file" selected="true">A one column txt file from the history</option>
+                <option value="text">Paste the UMI list in a text field</option>
+                <option value="no_barcodes">No predefined list</option>
+            </param>
+
+            <when value="file">
+                <param name="BARCODE_FILE" type="data" format="tabular,txt" label="UMI file"
+                    help="BARCODE_FILE. Pre-defined list of Unique Molecular Identifiers that can be expected.
+                    Format: one column text file, one UMI per line. All UMIs MUST have the same length."/>
+            </when>
+
+            <when value="text">
+                <param name="barcode_text" type="text" area="True" size="10x30"
+                    value="barcode\n" label="Barcode file"
+                    help="BARCODE_FILE. Pre-defined list of Unique Molecular Identifiers that can be expected.
+                    Format: one column text file, one UMI per line. All UMIs MUST have the same length.">
+                    <sanitizer>
+                        <valid initial="string.printable"></valid>
+                        <mapping initial="none"/>
+                    </sanitizer>
+                </param>
+            </when>
+            <when value="no_barcodes"/>
+        </conditional>
+        <repeat name="repeat_slots" min="1" title="Unique Molecular Identifier location">
+            <param name="SLOTS" type="text" value="-1" label="Where to find the UMIs in the read name"
+                help="SLOTS. The last position is considered by default (-1). See help below."/>
+        </repeat>
+        <param name="MM" type="integer" value="1" min="0"
+            label="Number of maximum mismatches to consider two Unique Molecular Identifiers (UMIs) similar"
+            help="MISMATCHES"/>
+        <param name="MAX_N" type="text" value="" label="Maximum number of Ns a UMI can contain"
+              help="MAX_NUMBER_OF_N. Above this value, reads are placed in a 'undefined' group.
+              Default value is the MISMATCHES number."/>
+        <param name="SPLIT" type="text" value=":" label="Character to split up the header" help="SPLIT"/>
+        <conditional name="trim_conditional">
+            <param name="T" type="select"
+                label="Should barcode information be removed from read names in the output BAM" help="TRIM_HEADERS">
+                <option value="true">Yes</option>
+                <option value="false" selected="true">No</option>
+            </param>
+            <when value="true">
+                <repeat name="repeat_tslots" min="1" title="Unique Molecular Identifier location for trimming">
+                    <param name="TSLOTS" type="text" value="-1"
+                        label="Where to find the UMIs in the read name that should be removed from the header"
+                        help="TSLOTS. Value for SLOTS is considered by default. See help below"/>
+                </repeat>
+            </when>
+            <when value="false"/>
+        </conditional>
+        <section name="adv_options" title="Advanced Options" expanded="False">
+            <repeat name="comments" title="Comment" min="0" help="You can provide multiple comments">
+              <param name="comment" type="text" label="Add this comment to BAM dataset"/>
+            </repeat>
+
+            <param name="duplicate_scoring_strategy" type="select" label="The scoring strategy for choosing the
+                non-duplicate among candidates" help="DUPLICATE_SCORING_STRATEGY; default=SUM_OF_BASE_QUALITIES">
+              <option value="SUM_OF_BASE_QUALITIES">SUM_OF_BASE_QUALITIES</option>
+              <option value="TOTAL_MAPPED_REFERENCE_LENGTH">TOTAL_MAPPED_REFERENCE_LENGTH</option>
+            </param>
+
+            <param name="read_name_regex" type="text" value="[a-zA-Z0-9]+:[0-9]:([0-9]+):([0-9]+):([0-9]+).*."
+                label="Regular expression that can be used to parse read names in the incoming SAM/BAM dataset"
+                help="READ_NAME_REGEX; Read names are parsed to extract three variables: tile/region, x coordinate and
+                y coordinate. These values are used to estimate the rate of optical duplication in order to give a more
+                accurate estimated library size. See help below for more info;
+                default=[a-zA-Z0-9]+:[0-9]:([0-9]+):([0-9]+):([0-9]+).*.">
+              <sanitizer>
+                <valid initial="string.printable">
+                </valid>
+              </sanitizer>
+            </param>
+            <param name="optical_duplicate_pixel_distance" type="integer" value="100" min="0" max="500"
+                label="The maximum offset between two duplicte clusters in order to consider them optical duplicates"
+                help="OPTICAL_DUPLICATE_PIXEL_DISTANCE; default=100"/>
+
+            <param name="validation_stringency" type="select" label="Select validation stringency"
+                help="Setting stringency to SILENT can improve performance when processing a BAM file in which
+                variable-length data (read, qualities, tags) do not otherwise need to be decoded.">
+              <option value="LENIENT" selected="True">Lenient</option>
+              <option value="SILENT">Silent</option>
+              <option value="STRICT">Strict</option>
+            </param>
+        </section>
+    </inputs>
+    <outputs>
+        <data format="bam" name="outFile" label="${tool.name} on ${on_string}: Je-MarkDuplicates BAM output"/>
+        <data format="txt" name="metrics_file" label="${tool.name} on ${on_string}: Je-MarkDuplicate metrics"/>
+    </outputs>
+
+    <tests>
+        <test>
+          <!-- picard markduplicates default test -->
+          <param name="inputFile" value="picard_MarkDuplicates.bam" ftype="bam"/>
+          <param name="barcode_list_type_con" value="no_barcodes"/>
+          <param name="comment" value="test-run"/>
+          <param name="assume_sorted" value="True"/>
+          <param name="remove_duplicates" value="True"/>
+          <param name="read_name_regex" value="[a-zA-Z0-9]+:[0-9]:([0-9]+):([0-9]+):([0-9]+).*."/>
+          <param name="optical_duplicate_pixel_distance" value="100"/>
+          <param name="duplicate_scoring_strategy" value="SUM_OF_BASE_QUALITIES"/>
+          <param name="validation_stringency" value="LENIENT"/>
+          <!-- TODO: the diff is set too high and the test might be incorrect as je markdupes expects barcodes -->
+          <output name="outFile" file="picard_MarkDuplicates_test1.bam" ftype="bam" lines_diff="7"/>
+        </test>
+        <test>
+          <!-- picard markduplicates default test -->
+          <param name="inputFile" value="markdupes_DNase_sorted.bam" ftype="bam"/>
+          <param name="barcode_list_type_con" value="file"/>
+          <param name="BARCODE_FILE" value="markdupes_umis.txt" ftype="txt"/>
+          <param name="repeat_slots_0|SLOTS" value="-1"/>
+          <param name="repeat_slots_1|SLOTS" value="-2"/>
+          <param name="MM" value="2"/>
+          <param name="MAX_N" value="1"/>
+          <param name="comment" value="test-run"/>
+          <param name="assume_sorted" value="True"/>
+          <param name="remove_duplicates" value="True"/>
+          <param name="read_name_regex" value="[a-zA-Z0-9]+:[0-9]:([0-9]+):([0-9]+):([0-9]+).*."/>
+          <param name="optical_duplicate_pixel_distance" value="100"/>
+          <param name="duplicate_scoring_strategy" value="SUM_OF_BASE_QUALITIES"/>
+          <param name="validation_stringency" value="LENIENT"/>
+          <output name="outFile" file="markdupes_DNase_sorted_marked.bam" ftype="bam" lines_diff="2"/>
+          <output name="metrics_file" file="markdupes_metrics.txt" ftype="txt" lines_diff="4"/>
+        </test>
+    </tests>
+
+
+  <help>
+<![CDATA[
+**What it does**
+
+Je MarkDupes: Examines aligned records in the supplied SAM or BAM file to locate duplicate molecules taking into account
+molecular barcodes (Unique Molecular Identifiers or UMIs) found in read header.
+All records are then either written to the output file with the duplicate records flagged or trashed.
+
+Input file is a bam file.
+
+Author: Charles Girardot  (charles.girardot@embl.de).
+
+Wrapper by: Jelle Scholtalbers (jelle.scholtalbers@embl.de).
+
+------
+
+**Know what you are doing**
+
+.. class:: warningmark
+
+You will want to read the `documentation`__.
+
+  .. __: http://gbcs.embl.de/portal/Je
+
+------
+
+**Parameter list**
+
+This is an exhaustive list of options::
+
+  INPUT=String
+  I=String
+
+    One or more input SAM or BAM files to analyze. Must be coordinate sorted.
+
+    Default value: null. This option may be specified 0 or more times.
+
+  OUTPUT=File
+  O=File
+
+    The output file to write marked records to
+
+    Required.
+
+  MISMATCHES=Integer
+  MM=Integer
+
+    Number of MisMatches (inclusive) to still consider two Unique Molecular Identifiers
+    (UMIs) the same i.e. this option buffers for sequencing errors.
+    Indeed, in case of a sequencing error, 2 duplicate reads would not be considered
+    duplicates anymore.
+    Note that N are not considered mismatches during comparison ie ATTNGG and NTTANG are seen
+    as the same barcode and these two reads would be flagged duplicates.
+    This option takes a single value even when several barcodes are present (see SLOTS).
+    Note that when declaring several barcodes (see SLOTS) AND providing a predefined set
+    of barcodes (see BC option), the MM value is applicable in each lookup. When a predefined
+    set of barcodes is NOT given, the different barcodes (SLOTS) are concatenated first and
+    the MM value is therefore considered *overall* as the concatenated code is seen as a
+    unique code.
+    MM=null is like MM=0
+    Use the minimum Hamming distance of the original barcode set (if applicable).
+
+    Required.
+
+  MAX_NUMBER_OF_N=Integer
+  MAX_N=Integer
+
+    Maximum number of Ns a molecular code can contain (inclusive). Above this value, reads
+    are placed in a UNDEF group.
+    More precisely, these 'too degenarate' codes will not :
+    	 * be compared to the list of predefined codes [predefined code list situation ie BC
+    option given] nor
+    	 * be considered as a potential independent code [no predefined code list situation ie
+    BC option not given]
+    Default value is the MISMATCHES number.
+    Note that when declaring several barcodes (see SLOTS) AND providing a predefined set
+    of barcodes (see BC option), the MAX_N value is applicable to each barcode. When a
+    predefined set
+    of barcodes is NOT given, the different barcodes (SLOTS) are concatenated first and the
+    MAX_N value
+    is therefore considered *overall*.
+
+    Default value: null.
+
+
+  SLOTS=Integer
+  SLOTS=Integer
+
+    Where to find the UMIs (and only the UMIs) in the read name once read name has been
+    tokenized using the SPLIT character (e.g. ':').
+    By default, the UMI is considered to be found at the end of the read header i.e. after
+    the last ':'. Use this option to indicate other or additional UMI positions (e.g.
+    multiple UMIs present in read header.
+    IMPORTANT: counting starts at 1 and negative numbers can be used to start counting from
+    the end.
+    For example, consider the following read name that lists 3 different barcodes in the end:
+      HISEQ:44:C6KC0ANXX:8:2112:20670:79594:CGATGTTT:GATCCTAG:AAGGTACG
+    to indicate that the three barcodes are molecular codes, use
+      SLOTS=-1 SLOTS=-2 SLOTS=-3
+    if only the 2 last ones should be considered (the third one being a sample encoding
+    barcode), use
+      SLOTS=-1 SLOTS=-2
+
+    Default value: null. This option may be specified 0 or more times.
+
+  BARCODE_FILE=File
+  BC=File
+
+    Pre-defined list of UMIs that can be expected. Format: one column text file, one barcode
+    per line. All UMIs MUST have the same length.
+
+    Default value: null.
+
+  TRIM_HEADERS=Boolean
+  T=Boolean
+
+    Should barcode information be removed from read names in the output BAM?
+
+    Default value: false. This option can be set to 'null' to clear the default value.
+    Possible values: {true, false}
+
+  TSLOTS=Integer
+  TSLOTS=Integer
+
+    Where to find *all* barcode(s) (i.e. sample encoding and UMIs) in the read name once has
+    been tokenized using the SPLIT character (e.g. ':').
+    This option is only considered when TRIM_HEADERS=true. When TSLOTS is ommited while
+    TRIM_HEADERS=true, the values of SLOTS apply.
+    IMPORTANT : counting starts at 1 and negative numbers can be used to start counting from
+    the end.
+    See SLOT help for examples.
+
+    Default value: null. This option may be specified 0 or more times.
+
+  SPLIT_CHAR=String
+  SPLIT=String
+
+    Character to use to split up the read header line, default is ':'.
+
+    Default value: ':'. This option can be set to 'null' to clear the default value.
+
+  INPUT=String
+  I=String
+
+    One or more input SAM or BAM files to analyze. Must be coordinate sorted.
+
+    Default value: null. This option may be specified 0 or more times.
+
+  OUTPUT=File
+  O=File
+
+    The output file to write marked records to  Required.
+
+  METRICS_FILE=File
+  M=File
+
+    File to write duplication metrics to  Required.
+
+  COMMENT=String
+  CO=String
+
+    Comment(s) to include in the output file's header.
+
+    Default value: null. This option may be specified 0 or more times.
+
+  REMOVE_DUPLICATES=Boolean
+
+    If true do not write duplicates to the output file instead of writing them with
+    appropriate flags set.
+
+    Default value: false. This option can be set to 'null' to clear
+    the default value.
+    Possible values: {true, false}
+
+  ASSUME_SORTED=Boolean
+  AS=Boolean
+
+    If true, assume that the input file is coordinate sorted even if the header says
+    otherwise.
+
+    Default value: false. This option can be set to 'null' to clear the default
+    value.
+    Possible values: {true, false}
+
+  DUPLICATE_SCORING_STRATEGY=ScoringStrategy
+  DS=ScoringStrategy
+
+    The scoring strategy for choosing the non-duplicate among candidates.
+
+    Default value: SUM_OF_BASE_QUALITIES. This option can be set to 'null' to clear the default value.
+    Possible values: {SUM_OF_BASE_QUALITIES, TOTAL_MAPPED_REFERENCE_LENGTH}
+
+  READ_NAME_REGEX=String
+
+    Regular expression that can be used to parse read names in the incoming SAM file. Read
+    names are parsed to extract three variables: tile/region, x coordinate and y coordinate.
+    These values are used to estimate the rate of optical duplication in order to give a more
+    accurate estimated library size. Set this option to null to disable optical duplicate
+    detection. The regular expression should contain three capture groups for the three
+    variables, in order. It must match the entire read name. Note that if the default regex
+    is specified, a regex match is not actually done, but instead the read name  is split on
+    colon character. For 5 element names, the 3rd, 4th and 5th elements are assumed to be
+    tile, x and y values. For 7 element names (CASAVA 1.8), the 5th, 6th, and 7th elements
+    are assumed to be tile, x and y values.
+
+    Default value:
+    [a-zA-Z0-9]+:[0-9]:([0-9]+):([0-9]+):([0-9]+).*. This option can be set to 'null' to
+    clear the default value.
+
+  OPTICAL_DUPLICATE_PIXEL_DISTANCE=Integer
+
+    The maximum offset between two duplicte clusters in order to consider them optical
+    duplicates. This should usually be set to some fairly small number (e.g. 5-10 pixels)
+    unless using later versions of the Illumina pipeline that multiply pixel values by 10, in
+    which case 50-100 is more normal.
+
+    Default value: 100. This option can be set to 'null'
+    to clear the default value.
+
+]]>
+  </help>
+
+</tool>

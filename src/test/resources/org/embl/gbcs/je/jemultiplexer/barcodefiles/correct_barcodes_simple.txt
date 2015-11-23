@@ -1,0 +1,4 @@
+sample1	AAAAAA
+sample2 TTTTTT
+sample3 CCCCCC
+sample4	GGGGGG

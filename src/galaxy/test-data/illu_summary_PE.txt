@@ -1,0 +1,8 @@
+Processed_read_pairs	25
+Assigned	10
+Unassigned_read_pairs	15
+emb681m1	2
+emb681m4	2
+emb681m5	2
+emb6801m2	2
+emb6801m1	2

@@ -1,0 +1,4 @@
+sample1 CACTGT sample1_SE.txt
+sample2 ATTCCG sample2_SE.txt
+sample3 GCTACC sample3_SE.txt
+sample4 CGAAAC sample4_SE.txt

@@ -1,0 +1,4 @@
+sample1 CACTGT:GTATAG sample1_1_PE.txt sample1_2_PE.txt
+sample2 ATTCCG:TCCGTC sample2_1_PE.txt sample2_2_PE.txt
+sample3 GCTACC:TGGTCA sample3_1_PE.txt sample3_2_PE.txt
+sample4 CGAAAC:CACTGT sample4_1_PE.txt sample4_2_PE.txt
