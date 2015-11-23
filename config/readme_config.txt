@@ -1,0 +1,1 @@
+copy files and rename them w/o the .template. Then add pwd and emails. MAKE SURE YOUR LOCAL COPIES WITH PWD ARE ADDED TO .GOTIGNORE !!!
