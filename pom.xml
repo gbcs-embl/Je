@@ -43,12 +43,20 @@
 			<!-- Resource def needed to overwrite properties dynamically in eg log4j.xml -->
 
 			<resource>
-				<directory>src/main/resources</directory>
+				<directory>${basedir}/src/main/resources</directory>
 				<includes>
-					<include>**/*.*xml</include>
-					<include>**/*.*properties</include>
+					<include>log4j.xml</include>
+					<include>*.properties</include>
 				</includes>
 				<filtering>true</filtering>
+			</resource>
+			
+			<resource>
+				<directory>${basedir}/src/test/resources</directory>
+				<excludes>
+					<exclude>log4j.xml</exclude>
+					<exclude>**/*.txt</exclude>
+				</excludes>
 			</resource>
 
 		</resources>
