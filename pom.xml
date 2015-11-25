@@ -211,6 +211,18 @@
 
 	<dependencies>
 
+		<dependency>
+			<groupId>org.embl.gbcs.embase</groupId>
+			<artifactId>jembase_api</artifactId>
+			<version>1.0</version>
+		</dependency>
+
+		<dependency>
+			<groupId>org.embl.cg.utilitytools</groupId>
+			<artifactId>ut_utils</artifactId>
+			<version>1.0</version>
+		</dependency>
+		
 		<!-- <dependency> -->
 		<!-- <groupId>net.sf</groupId> -->
 		<!-- <artifactId>picard</artifactId> -->
@@ -252,18 +264,7 @@
 			<artifactId>mysql-connector-java</artifactId>
 			<version>5.1.25</version>
 		</dependency>
-		<dependency>
-			<groupId>org.embl.gbcs.embase</groupId>
-			<artifactId>jembase_api</artifactId>
-			<version>1.0</version>
-		</dependency>
-
-		<dependency>
-			<groupId>org.embl.cg.utilitytools</groupId>
-			<artifactId>ut_utils</artifactId>
-			<version>0.1-SNAPSHOT</version>
-		</dependency>
-
+		
 
 		<dependency>
 			<groupId>org.apache.commons</groupId>
