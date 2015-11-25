@@ -25,6 +25,12 @@ Je currently offers 4 tools :
 
      to filter BAM files for read duplicates taking UMIs into account
 
+
+Distributions
+++++++
+dist/
+    contains the different Je versions for download 
+
 Source
 ++++++
 
