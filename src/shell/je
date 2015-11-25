@@ -8,5 +8,8 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 JAR_FILE=$DIR"/je_embl_1.0_bundle.jar"
 
 OPTS="-Xmx2g"
+#uncomment to change logging level using your own log4j.xml found in $DIR file 
+OPTS=$OPTS" -Dlog4j.configuration=file:$DIR/log4j.xml"
+
 java $OPTS -jar $JAR_FILE "$@"
 exit $?
