@@ -329,7 +329,7 @@ ${from_text_area}</configfile>
             <discover_datasets pattern="(?P&lt;name&gt;.*)\.txt" directory="results" visible="true" ext="fastqsanger"/>
         </data>
         <data name="BARCODE_DIAG_FILE" format="tabular" label="Barcode statistics">
-            <filter>(adv_options.DIAG == 'true')</filter>
+            <filter>(adv_options['DIAG'] == 'true')</filter>
         </data>
     </xml>
 

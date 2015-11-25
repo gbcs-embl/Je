@@ -164,20 +164,6 @@
     <tests>
         <test>
           <!-- picard markduplicates default test -->
-          <param name="inputFile" value="picard_MarkDuplicates.bam" ftype="bam"/>
-          <param name="barcode_list_type_con" value="no_barcodes"/>
-          <param name="comment" value="test-run"/>
-          <param name="assume_sorted" value="True"/>
-          <param name="remove_duplicates" value="True"/>
-          <param name="read_name_regex" value="[a-zA-Z0-9]+:[0-9]:([0-9]+):([0-9]+):([0-9]+).*."/>
-          <param name="optical_duplicate_pixel_distance" value="100"/>
-          <param name="duplicate_scoring_strategy" value="SUM_OF_BASE_QUALITIES"/>
-          <param name="validation_stringency" value="LENIENT"/>
-          <!-- TODO: the diff is set too high and the test might be incorrect as je markdupes expects barcodes -->
-          <output name="outFile" file="picard_MarkDuplicates_test1.bam" ftype="bam" lines_diff="7"/>
-        </test>
-        <test>
-          <!-- picard markduplicates default test -->
           <param name="inputFile" value="markdupes_DNase_sorted.bam" ftype="bam"/>
           <param name="barcode_list_type_con" value="file"/>
           <param name="BARCODE_FILE" value="markdupes_umis.txt" ftype="txt"/>
@@ -218,7 +204,7 @@ Wrapper by: Jelle Scholtalbers (jelle.scholtalbers@embl.de).
 
 .. class:: warningmark
 
-You will want to read the `documentation`__.
+  You will want to read the `documentation`__.
 
   .. __: http://gbcs.embl.de/portal/Je
 

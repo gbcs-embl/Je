@@ -1,6 +1,9 @@
-Processed_read_pairs	25
-Assigned	10
-Unassigned_read_pairs	15
+##
+##
+Processed Reads (pairs)	25
+Assigned Reads (pairs)	10
+Unassigned Reads (pairs)	15
+# Individual sample read (pair) counts :
 emb681m1	2
 emb681m4	2
 emb681m5	2

@@ -1,11 +1,1 @@
-#!/bin/sh
-# Wrapper around je_embl_1.0_bundle.jar
-
-#path to jar file to execute
-DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-#echo $DIR
-JAR_FILE=$DIR"/je_1.0_bundle.jar"
-
-OPTS="-Xmx8g"
-java $OPTS -jar $JAR_FILE "$@"
-exit $?
+../../dist/je

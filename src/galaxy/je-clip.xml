@@ -89,7 +89,7 @@
 **What it does**
 
 Je clip: Clips barcodes or Unique Molecular Identifiers (UMIs) from the input fastq files
-Input files are fastq files, and can be in gzip compressed format (end in .gz).
+Input files are fastq files, and can be in gzip compressed format.
 
 Author: Charles Girardot  (charles.girardot@embl.de).
 
@@ -101,7 +101,7 @@ Wrapper by: Jelle Scholtalbers (jelle.scholtalbers@embl.de).
 
 .. class:: warningmark
 
-You will want to read the `documentation`__.
+  You will want to read the `documentation`__.
 
   .. __: http://gbcs.embl.de/portal/Je
 
