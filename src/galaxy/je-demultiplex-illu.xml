@@ -1,4 +1,4 @@
-<tool id="je-demultiplex-illu" name="Je-Demultiplex-Illu" version="1.0">
+<tool id="je_demultiplex_illu" name="Je-Demultiplex-Illu" version="1.0">
     <description>demultiplexes fastq files using Illumina Index file</description>
     <macros>
         <import>macros.xml</import>

@@ -1,0 +1,21 @@
+categories: 
+  - Fastq Manipulation
+  - SAM
+description: The Je tool suite
+name: je
+owner: gbcs-embl-heidelberg
+homepage_url: http://gbcs.embl.de/Je
+remote_repository_url: https://git.embl.de/grp-gbcs/Je/tree/master/src/galaxy
+auto_tool_repositories:
+  name_template: "{{ tool_id }}"
+  description_template: "Wrapper for Je tool: {{ tool_name }}"
+suite:
+  name: "suite_je"
+  description: "Je is a suite to handle barcoded fastq files with (or without) Unique Molecule Identifiers (UMIs) and filter read duplicates using these UMIs"
+  long_description: |
+     If you have barcodes and/or UMIs in your fastq files, you'll most likely enjoy Je. Je currently offers 4 tools:
+
+     demultiplex to demultiplex multi-samples fastq files which reads contain barcodes and UMIs (or not) 
+     demultiplex-illu to demultiplex fastq files according to associated index files (contain the sample encoding barcodes). Reads can additionally contain UMIs (inline)
+     clip to remove UMIs contained in reads of fastq files that do not need sample demultiplexing
+     markdupes to filter BAM files for read duplicates taking UMIs into account

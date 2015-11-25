@@ -1,4 +1,4 @@
-<tool id="je-markdupes" name="Je-MarkDuplicates" version="1.0">
+<tool id="je_markdupes" name="Je-MarkDuplicates" version="1.0">
     <description>to filter BAM files for read duplicates taking UMIs into account</description>
     <macros>
         <import>macros.xml</import>
@@ -7,7 +7,6 @@
         <exit_code range="1:" level="fatal" description="Tool exception" />
     </stdio>
     <version_command>echo '1.0'</version_command>
-
     <command interpreter="bash">
 <![CDATA[
     je markdupes
@@ -63,7 +62,7 @@
     </configfiles>
 
     <inputs>
-        <param format="bam" name="inputFile" type="data" label="Select SAM/BAM dataset"
+        <param format="bam,sam" name="inputFile" type="data" label="Select SAM/BAM dataset"
             help="If empty, upload or import a SAM/BAM dataset"/>
         <param name="remove_duplicates" type="boolean" label="If true do not write duplicates to the output file
             instead of writing them with appropriate flags set" help="REMOVE_DUPLICATES; default=False"/>
