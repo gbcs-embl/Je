@@ -137,7 +137,8 @@ public class MarkDuplicatesWithMolecularCode extends AbstractMarkDuplicatesComma
 					+ "\t to indicate that the three barcodes are molecular codes, use \n"
 					+ "\t\tSLOTS=-1 SLOTS=-2 SLOTS=-3\n"
 					+ "\t if only the 2 last ones should be considered (the third one being a sample encoding barcode), use \n"
-					+ "\t\tSLOTS=-1 SLOTS=-2\n"
+					+ "\t\tSLOTS=-1 SLOTS=-2"
+					+ "\t N.B.: UMI usage can be deactivate by explicitely setting SLOTS=null in the command line\n"
 					)
 	public List<Integer> SLOTS = null;
 	
