@@ -27,6 +27,7 @@ import java.util.Set;
 import java.util.TreeSet;
 
 import org.embl.cg.utilitytools.utils.StringUtil;
+import org.embl.gbcs.je.dropseq.Jedropseq;
 import org.embl.gbcs.je.jeclipper.Jeclipper;
 import org.embl.gbcs.je.jeduplicates.MarkDuplicatesWithMolecularCode;
 import org.embl.gbcs.je.jemultiplexer.Jemultiplexer;
@@ -47,6 +48,7 @@ public class Je  {
 	private static Logger log = LoggerFactory.getLogger(Je.class);
 
 	
+	public static final String COMMAND_DROPSEQ = "dropseq"; 
 	public static final String COMMAND_CLIP = "clip"; 
 	public static final String COMMAND_DUPES = "markdupes";
 	public static final String COMMAND_MULTIPLEX = "demultiplex";
@@ -59,6 +61,7 @@ public class Je  {
 		ALLOWED_COMMANDS.add(COMMAND_DUPES);
 		ALLOWED_COMMANDS.add(COMMAND_MULTIPLEX);
 		ALLOWED_COMMANDS.add(COMMAND_MULTIPLEX_ILLUMINA);
+		ALLOWED_COMMANDS.add(COMMAND_DROPSEQ);
 		
 	}
 	
@@ -111,6 +114,9 @@ public class Je  {
 		else if(option.equalsIgnoreCase(COMMAND_DUPES)){
 			new MarkDuplicatesWithMolecularCode().instanceMainWithExit(argv);
 		}
+		else if(option.equalsIgnoreCase(COMMAND_DROPSEQ)){
+			new Jedropseq().instanceMainWithExit(argv);
+		}
 		else{
 			System.err.println(
 					"FATAL : We just reached a supposedly unreachable part of the code. Please report this bug to Je developpers indicating the options you used i.e. : \n "+
@@ -128,6 +134,7 @@ public class Je  {
 				+"\t "+COMMAND_MULTIPLEX+" \t\t demultiplex fastq file(s), with optional handling of molecular barcodes for further use in 'dupes' module\n"
 				+"\t "+COMMAND_MULTIPLEX_ILLUMINA+" \t demultiplex fastq file(s) using Illumina Index files, with optional handling of molecular barcodes for further use in 'dupes' module\n"
 				+"\t "+COMMAND_DUPES+"     \t\t removes read duplicates based on molecular barcodes found in read name headers (as produced by clip or plex)\n"
+				+"\t "+COMMAND_DROPSEQ+"    \t\t clips cell barcode and UMI from read 1 and adds them to header of read 2. This command is for processing drop-seq results.\n"
 				+"\n"
 				+"Version : "+getVersion()
 				;

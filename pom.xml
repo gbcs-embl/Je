@@ -3,7 +3,7 @@
 	<modelVersion>4.0.0</modelVersion>
 	<groupId>Je</groupId>
 	<artifactId>Je</artifactId>
-	<version>1.0</version>
+	<version>1.1</version>
 	<name>Je</name>
 	<description>Je provides command line utilities to deal with barcoded FASTQ files with or without Unique Molecular Index (UMI)</description>
 
