@@ -55,7 +55,7 @@
     </inputs>
     <outputs>
         <data name="BARCODE_RESULT_FILENAME" format="tabular" label="Je-Clipped Barcodes">
-            <filter>ADD == "false"</filter>
+            <filter>!ADD</filter>
         </data>
         <data name="OF1" format_source="input_1" label="Je-Clip OF1: ${on_string}"/>
         <data name="OF2" format_source="input_2" label="Je-Clip OF2: ${on_string}">
