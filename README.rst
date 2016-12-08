@@ -1,6 +1,9 @@
 Je
 --
 
+Additional documentation and support can be found at http://gbcs.embl.de/je
+
+
 The Je tool suite
 =================
 
