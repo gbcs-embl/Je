@@ -30,6 +30,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import org.embl.cg.utilitytools.utils.StringUtil;
+import org.embl.gbcs.je.jemultiplexer.BarcodePosition;
 import org.embl.gbcs.je.jemultiplexer.JemultiplexerIllumina;
 import org.junit.After;
 import org.junit.Assert;
@@ -91,6 +92,59 @@ public class JemultiplexerIlluminaFunctionalTest extends BaseTesterForJemultiple
 	}
 
 
+	@Test
+	public void testWithIndexFilesAndUMISE(){
+
+		try {
+			File bcFile = new File(JemultiplexerIlluminaFunctionalTest.class.getResource("barcodes_SE.txt").toURI()) ;
+			File f1 = new File(JemultiplexerIlluminaFunctionalTest.class.getResource("file_1_sequence.txt").toURI());
+			File i1 = new File(JemultiplexerIlluminaFunctionalTest.class.getResource("IDX_1_sequence.txt").toURI());
+
+
+			File outdir = f1.getParentFile();
+
+			String[] argv = new String[] {
+					"F1="+f1.getAbsolutePath(), 
+					"I1="+i1.getAbsolutePath(),
+					"BF="+bcFile.getAbsolutePath(),
+					"LEN=8",
+					"BPOS=READ_1", 
+					"XT=0", 
+					"Q=0", //make sure quality is not considered
+					"O="+outdir.getAbsolutePath(), 
+					"GZ=false",
+					"UN=false",
+					"ASYNC=false",
+					"READ_NAME_REPLACE_CHAR=:"
+			};
+
+			JemultiplexerIllumina j = new JemultiplexerIllumina();
+
+			//parse
+			Assert.assertEquals(0, j.instanceMain(argv));
+			Assert.assertTrue(j.ADD_BARCODE_TO_HEADER);
+			Assert.assertTrue(j.CLIP_BARCODE);
+			Assert.assertTrue(j.BARCODE_READ_POS == BarcodePosition.READ_1);
+			Assert.assertNotNull(j.READ_NAME_REPLACE_CHAR);
+
+			
+			//check header format
+			Map<String, String> m = fetchBarcodesInHeader(new File(outdir, "sample1_SE.txt")); //CACTGT is the BC
+			for (String h : m.values()) {
+				log.debug(h);
+				Assert.assertTrue("Wrong sample barcode", h.contains("CACTGT"));
+				Assert.assertTrue("Wrong UMI length", h.replace("CACTGT:","").length() == 8);
+			}
+			
+			
+		} catch (URISyntaxException e) {
+			throw new RuntimeException(e);
+		}
+
+
+	}
+
+	
 	@Test
 	public void testWithIndexFilesSE(){
 

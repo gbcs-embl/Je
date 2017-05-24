@@ -526,9 +526,6 @@ public abstract class AbstractJemultiplexer extends CommandLineProgram {
 	protected String[] customCommonCommandLineValidation(List<String> messages) {
 		
 		
-		
-		
-		
 		/*
 		 * Check barcode option are consitent
 		 * 

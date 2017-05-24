@@ -448,7 +448,8 @@ public class JemultiplexerIllumina extends AbstractJemultiplexer {
 
 				}else if(!is_unassigned){
 					//single end
-					write(r1, BCLEN_1, XTRIMLEN_1, ZTRIMLEN_1, fwdW, (bc1 == null ? null : bc1.barcode), ADD_BARCODE_TO_HEADER, false);
+					// write(r1, BCLEN_1, XTRIMLEN_1, ZTRIMLEN_1, fwdW, (bc1 == null ? null : bc1.barcode), ADD_BARCODE_TO_HEADER, false); //bug reported by Mark Heron
+					writeWithIndexFiles(r1, BCLEN_1, XTRIMLEN_1, ZTRIMLEN_1, fwdW, (bc1 == null ? null : bc1.barcode), ADD_BARCODE_TO_HEADER);
 				}else{
 					/*
 					 *  is_unassigned == TRUE situation
@@ -912,7 +913,7 @@ public class JemultiplexerIllumina extends AbstractJemultiplexer {
 		 */
 		
 		//clip off the '1:N:0'
-		String commonHeader = r1.getReadHeader().split("\\s+")[0]; //take any of the two, once '1:N:0' is clipepd they are similar
+		String commonHeader = r1.getReadHeader().split("\\s+")[0]; //take any of the two, once '1:N:0' is clipped they are similar
 		if(READ_NAME_REPLACE_CHAR == null){
 			//then we add back a space
 			commonHeader += " ";
