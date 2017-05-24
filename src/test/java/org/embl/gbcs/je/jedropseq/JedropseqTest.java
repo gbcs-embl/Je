@@ -27,9 +27,6 @@ import java.io.File;
 import java.net.URISyntaxException;
 
 import org.apache.log4j.Logger;
-import org.embl.gbcs.je.dropseq.Jedropseq;
-import org.embl.gbcs.je.jeclipper.Jeclipper;
-import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
