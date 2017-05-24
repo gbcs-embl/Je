@@ -87,25 +87,22 @@ public class BaseTesterForJemultiplexer {
 	}
 	
 	/**
-	 * only gets the part added by jemultiplexer :
-	 * -takes the string after the space 
-	 * - clip off the "1:N:0:" part of it
+	 * only gets the part added by jemultiplexer ie the string following the "1:N:0:". 
+	 * What precedes is used as read id
 	 * 
 	 * @param fastq
-	 * @return a map keyed by the part left to the space of the header
+	 * @return a map keyed by the part left to the "1:N:0:" of the header and valued with the rigth part
 	 */
 	protected Map<String, String> fetchBarcodesInHeader(File fastq) {
-		Pattern p = Pattern.compile("\\d\\:N\\:0\\:(.+)$");
+		Pattern p = Pattern.compile("^(.+)\\d\\:N\\:0\\:(.+)$");
 		FastqReader fqr = new FastqReader(fastq);
 		Iterator<FastqRecord> it = fqr.iterator();
 		Map<String, String> m = new HashMap<String, String>();
 		while(it.hasNext()){
 			FastqRecord r = it.next();
-			String [] tokens = r.getReadHeader().split("\\s+");
-			log.debug(tokens[0] +" " +tokens[1]);
-			Matcher matcher = p.matcher(tokens[1]);
-			matcher.find();
-			m.put(tokens[0], matcher.group(1));
+			Matcher matcher = p.matcher(r.getReadHeader());
+			matcher.matches();
+			m.put(matcher.group(1), matcher.group(2));
 		}
 		fqr.close();
 		return m;
