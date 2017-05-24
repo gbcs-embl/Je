@@ -27,8 +27,8 @@ import java.util.Set;
 import java.util.TreeSet;
 
 import org.embl.cg.utilitytools.utils.StringUtil;
-import org.embl.gbcs.je.dropseq.Jedropseq;
 import org.embl.gbcs.je.jeclipper.Jeclipper;
+import org.embl.gbcs.je.jedropseq.Jedropseq;
 import org.embl.gbcs.je.jeduplicates.MarkDuplicatesWithMolecularCode;
 import org.embl.gbcs.je.jemultiplexer.Jemultiplexer;
 import org.embl.gbcs.je.jemultiplexer.JemultiplexerIllumina;
