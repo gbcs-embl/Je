@@ -1,8 +1,6 @@
-*~
-.DS_Store
 bin
 .metadata
+*~
 target/
+.DS_Store
 ._*
-.settings/
-.project
