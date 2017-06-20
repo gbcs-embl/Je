@@ -21,7 +21,7 @@
     @barcode_len_cmd@
     ADD=${ADD}
     #if str($ADD) == "false":
-        BARCODE_RESULT_FILENAME=$BARCODE_RESULT_FILENAME
+        BARCODE_RESULT_FILENAME=${BARCODE_RESULT_FILENAME}
     #end if
 
     OF1=${OF1}
@@ -54,10 +54,12 @@
 
     </inputs>
     <outputs>
-        <data name="BARCODE_RESULT_FILENAME" format="tabular" label="Je-Clipped Barcodes"/>
-        <data name="OF1" format_source="input_1" label="Je-Clipped {on_string}"/>
-        <data name="OF2" format_source="input_1" label="Je-Clipped {on_string}">
-            <filter>(type != "single")</filter>
+        <data name="BARCODE_RESULT_FILENAME" format="tabular" label="Je-Clipped Barcodes">
+            <filter>!ADD</filter>
+        </data>
+        <data name="OF1" format_source="input_1" label="Je-Clip OF1: ${on_string}"/>
+        <data name="OF2" format_source="input_2" label="Je-Clip OF2: ${on_string}">
+            <filter>library["type"] != "single"</filter>
         </data>
     </outputs>
 

@@ -17,8 +17,8 @@
 
     <xml name="paired_options">
         <when value="paired">
-            <param name="input_1" format="fastq" type="data" label="FASTQ file #1"/>
-            <param name="input_2" format="fastq" type="data" label="FASTQ file #2"/>
+            <param name="input_1" format="fastq,gz" type="data" label="FASTQ file #1"/>
+            <param name="input_2" format="fastq,gz" type="data" label="FASTQ file #2"/>
             <yield />
             <param name="SAME_HEADERS" type="boolean"
                 label="Ensure headers of both reads of a pair are identical (SAME_HEADERS)"
@@ -27,7 +27,7 @@
                 falsevalue="false" checked="false"/>
         </when>
         <when value="paired_collection">
-            <param name="input_1" format="fastq" type="data_collection" collection_type="paired"
+            <param name="input_1" format="fastq,gz" type="data_collection" collection_type="paired"
                 label="FASTQ Paired Dataset"/>
             <yield />
             <param name="SAME_HEADERS" type="boolean"
@@ -60,18 +60,18 @@
               <option value="paired_collection">Paired-end Dataset Collection</option>
             </param>
             <when value="single">
-                <param name="input_1" format="fastq" type="data" label="FASTQ file"/>
-                <param name="I1" type="data" format="fastq" label="First Index File"/>
+                <param name="input_1" format="fastq,gz" type="data" label="FASTQ file"/>
+                <param name="I1" type="data" format="fastq,gz" label="First Index File"/>
             </when>
             <expand macro="paired_options">
-                <param name="I1" type="data" format="fastq" label="First Index File"/>
+                <param name="I1" type="data" format="fastq,gz" label="First Index File"/>
                 <conditional name="I2_CONDITIONAL">
                     <param name="I2_AVAILABLE" type="select" label="Do you have a second index file?">
                         <option value="true">Yes</option>
                         <option value="false" selected="true">No</option>
                     </param>
                     <when value="true">
-                        <param name="I2" type="data" format="fastq" label="Second Index File"/>
+                        <param name="I2" type="data" format="fastq,gz" label="Second Index File"/>
                         <expand macro="bred_conditional"/>
                     </when>
                     <when value="false"/>
@@ -88,7 +88,7 @@
               <option value="paired_collection">Paired-end Dataset Collection</option>
             </param>
             <when value="single">
-                <param name="input_1" format="fastq" type="data" label="FASTQ file"/>
+                <param name="input_1" format="fastq,gz" type="data" label="FASTQ file"/>
             </when>
             <expand macro="paired_options">
                 <yield />
@@ -298,6 +298,8 @@ ${from_text_area}</configfile>
         ZT=${ZT}
         #if str( $RCHAR ) != "":
             RCHAR=${RCHAR}
+        #else:
+            RCHAR=null
         #end if
         GZ=${GZ}
         OUTPUT_DIR=results
@@ -310,7 +312,7 @@ ${from_text_area}</configfile>
 
         <param name="RCHAR" type="text"
             label="Replace white space in the read name/header with speficied symbols (RCHAR)"
-            help="Set to empty for no replacement"
+            help="Set to empty or null for no replacement."
             value=":"/>
 
         <param name="GZ" type="boolean" hidden="true" label="Compress output (GZ)"
