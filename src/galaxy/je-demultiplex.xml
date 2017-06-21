@@ -1,4 +1,4 @@
-<tool id="je_demultiplex" name="Je-Demultiplex" version="1.0">
+<tool id="je_demultiplex" name="Je-Demultiplex" version="@VERSION_STRING@">
     <description>demultiplexes fastq files</description>
     <macros>
         <import>macros.xml</import>

@@ -1,4 +1,4 @@
-<tool id="je_markdupes" name="Je-MarkDuplicates" version="1.0">
+<tool id="je_markdupes" name="Je-MarkDuplicates" version="@VERSION_STRING@">
     <description>to filter BAM files for read duplicates taking UMIs into account</description>
     <macros>
         <import>macros.xml</import>

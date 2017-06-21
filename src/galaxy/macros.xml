@@ -1,5 +1,7 @@
 <macros>
 
+    <token name="@VERSION_STRING@">1.1</token>
+
     <token name="@single_or_paired_cmd@">
         #if str( $library.type ) == "single":
             F1=${library.input_1}

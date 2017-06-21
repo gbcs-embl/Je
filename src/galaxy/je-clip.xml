@@ -1,4 +1,4 @@
-<tool id="je_clip" name="Je-Clip" version="1.0">
+<tool id="je_clip" name="Je-Clip" version="@VERSION_STRING@">
     <description>clips Unique Molecular Identifiers (UMIs) from fastq files</description>
     <macros>
         <import>macros.xml</import>

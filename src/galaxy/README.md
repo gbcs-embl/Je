@@ -15,5 +15,5 @@ Look at the result and then update the main toolshed.
 
 ## Update toolshed
 
-``planemo shed_update``
+``planemo shed_update --shed_target toolshed``
 
