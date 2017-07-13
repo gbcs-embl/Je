@@ -37,8 +37,8 @@ import java.util.zip.GZIPOutputStream;
 import org.apache.commons.lang3.StringUtils;
 import org.embl.cg.utilitytools.utils.ExceptionUtil;
 import org.embl.cg.utilitytools.utils.FileUtil;
+import org.embl.gbcs.je.JemultiplexerFastqWriterFactory;
 import org.embl.gbcs.je.jemultiplexer.BarcodePosition;
-import org.embl.gbcs.je.jemultiplexer.JemultiplexerFastqWriterFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

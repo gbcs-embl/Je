@@ -23,6 +23,9 @@
  */
 package org.embl.gbcs.je;
 
+import java.util.Set;
+import java.util.TreeSet;
+
 import com.developpez.adiguba.shell.ProcessConsumer;
 
 public class JeUtils {
@@ -60,6 +63,19 @@ public class JeUtils {
         }
          
 		
+	}
+
+	public static int barcodeSlotCount(ReadLayout[] readLayouts) {
+		
+		return barcodeBlockUniqueIdSet(readLayouts).size();
+	}
+	
+	public static Set<Integer> barcodeBlockUniqueIdSet(ReadLayout[] readLayouts) {
+		Set<Integer> allIds = new TreeSet<Integer>();
+		for (ReadLayout rl : readLayouts) {
+			allIds.addAll(rl.getBarcodeBlockUniqueIds());
+		}
+		return allIds;
 	}
 	
 	

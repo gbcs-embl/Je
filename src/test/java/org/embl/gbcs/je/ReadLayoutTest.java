@@ -49,6 +49,8 @@ public class ReadLayoutTest {
 				"<BARCODE:>NN<UMI:8>N<SAMPLE:20>",
 				"ATGCATGC",
 				"<BARCOD:3>NN<UMI:8>N<SAMPLE:20>",
+				"<BARCODE:3>NN<SAMPLE:-2>N<UMI:20>",
+				"<BARCODE:3>NN<SAMPLE:x>N<UMI:20>",
 				"<BARCODE:3>NN<UMI:8>N<SAMPLE:20><WRONG:9>",
 		};
 		for (String layout : layouts) {
@@ -60,6 +62,55 @@ public class ReadLayoutTest {
 			}
 		}
 	}
+	
+	
+	/**
+	 * Give a BC-UMI-SAMPLE layout with exact sample lenght and
+	 *  make sure the correct pieces are extracted
+	 */
+	@Test
+	public final void testMultiBlockLayoutWithNamedSlots() {
+		String layout = "A<UMI1:3><BARCODE2:6><BARCODE3:3><UMI2:8>N<SAMPLE2:x>";
+		String bc1 = "ACACAC";
+		String bc2 = "GGG";
+		String umi1 = "ACT";
+		String umi2 = "ACGTACGT";
+		String smpl = "TACGACNACN"+"NACACACAGT"+"CG"; //22 long
+		String read = "A"+umi1+bc1+bc2+umi2+"A"+smpl;
+		
+		ReadLayout l = new ReadLayout(layout);
+		
+		Assert.assertTrue("containsBarcode() should be true but was not for layout: "+layout, l.containsBarcode() );
+		Assert.assertTrue("containsUMI() should be true but was not for layout: "+layout, l.containsUMI() );
+		Assert.assertTrue("containsSampleSequence() should be true but was not for layout: "+layout, l.containsSampleSequence() );
+		
+		Assert.assertEquals(2, l.umiBlockNumber());
+		Assert.assertEquals(2, l.barcodeBlockNumber());
+		
+		String[] arr  = l.extractBarcodes(read);
+		log.debug(arr[0]);
+		log.debug(arr[1]);
+		Assert.assertEquals(bc1, arr[0]);
+		Assert.assertEquals(bc2, arr[1]);
+		
+		Assert.assertEquals(umi1, l.extractUMIs(read)[0]);
+		Assert.assertEquals(umi2, l.extractUMIs(read)[1]);
+		
+		Assert.assertEquals(bc1+bc2, l.extractBarcode(read));
+		Assert.assertEquals(umi1+umi2, l.extractUMI(read));
+		Assert.assertEquals(smpl, l.extractSample(read));	
+		
+		Assert.assertEquals(bc1, l.extractBarcode(read, 2));
+		Assert.assertEquals(bc2, l.extractBarcode(read, 3));
+		
+		Assert.assertEquals(umi1, l.extractUMI(read, 1));
+		Assert.assertEquals(umi2, l.extractUMI(read, 2));
+		Assert.assertTrue("wrong sampleBlockId ",  l.getSampleBlockUniqueIds().contains(2) && l.getSampleBlockUniqueIds().size() == 1);
+		
+		
+		
+	}
+	
 	
 	/**
 	 * Give a BC-UMI-SAMPLE layout with exact sample lenght and
@@ -95,7 +146,7 @@ public class ReadLayoutTest {
 		
 		Assert.assertEquals(bc1+bc2, l.extractBarcode(read));
 		Assert.assertEquals(umi1+umi2, l.extractUMI(read));
-		Assert.assertEquals(smpl, l.extractSampleSequence(read));	
+		Assert.assertEquals(smpl, l.extractSample(read));	
 	}
 	
 	/**
@@ -132,7 +183,7 @@ public class ReadLayoutTest {
 		
 		Assert.assertEquals(bc1+bc2, l.extractBarcode(read));
 		Assert.assertEquals(umi1+umi2, l.extractUMI(read));
-		Assert.assertEquals(smpl, l.extractSampleSequence(read));	
+		Assert.assertEquals(smpl, l.extractSample(read));	
 	}
 	
 	
@@ -159,7 +210,7 @@ public class ReadLayoutTest {
 		
 		Assert.assertEquals(bc, l.extractBarcode(read));
 		Assert.assertEquals(umi, l.extractUMI(read));
-		Assert.assertEquals("TACGACNACN"+"NACACACAGT", l.extractSampleSequence(read));	
+		Assert.assertEquals("TACGACNACN"+"NACACACAGT", l.extractSample(read));	
 	}
 	
 	/**
@@ -185,7 +236,7 @@ public class ReadLayoutTest {
 		
 		Assert.assertEquals(bc, l.extractBarcode(read));
 		Assert.assertEquals(umi, l.extractUMI(read));
-		Assert.assertEquals("TACGACNACN"+"NACACACAGT", l.extractSampleSequence(read));	
+		Assert.assertEquals("TACGACNACN"+"NACACACAGT", l.extractSample(read, 1));	
 	}
 	
 	
@@ -211,7 +262,7 @@ public class ReadLayoutTest {
 		
 		Assert.assertEquals(bc, l.extractBarcode(read));
 		Assert.assertEquals(umi, l.extractUMI(read));
-		Assert.assertNull(l.extractSampleSequence(read));	
+		Assert.assertNull(l.extractSample(read));	
 	}
 	
 	
@@ -237,7 +288,7 @@ public class ReadLayoutTest {
 		
 		Assert.assertEquals(bc, l.extractBarcode(read));
 		Assert.assertEquals(umi, l.extractUMI(read));
-		Assert.assertEquals(smpl, l.extractSampleSequence(read));	
+		Assert.assertEquals(smpl, l.extractSample(read, 1));	
 	}
 	
 	
@@ -262,7 +313,7 @@ public class ReadLayoutTest {
 		
 		Assert.assertEquals(bc, l.extractBarcode(read));
 		Assert.assertNull(l.extractUMI(read));
-		Assert.assertEquals(smpl, l.extractSampleSequence(read));	
+		Assert.assertEquals(smpl, l.extractSample(read));	
 	}
 	
 	/**
@@ -286,7 +337,7 @@ public class ReadLayoutTest {
 		
 		Assert.assertNull( l.extractBarcode(read));
 		Assert.assertEquals(umi, l.extractUMI(read));
-		Assert.assertEquals(smpl, l.extractSampleSequence(read));	
+		Assert.assertEquals(smpl, l.extractSample(read));	
 	}
 	
 	
@@ -307,7 +358,7 @@ public class ReadLayoutTest {
 		
 		Assert.assertNull( l.extractBarcode(read));
 		Assert.assertEquals(umi, l.extractUMI(read));
-		Assert.assertNull(l.extractSampleSequence(read));	
+		Assert.assertNull(l.extractSample(read));	
 	}
 	
 	@Test
@@ -326,7 +377,7 @@ public class ReadLayoutTest {
 		Assert.assertEquals(0, l.barcodeBlockNumber());
 		
 		Assert.assertNull( l.extractBarcode(read));
-		Assert.assertEquals(spl, l.extractSampleSequence(read));
+		Assert.assertEquals(spl, l.extractSample(read));
 		Assert.assertNull(l.extractUMI(read));	
 	}
 	
@@ -346,7 +397,7 @@ public class ReadLayoutTest {
 		Assert.assertEquals(0, l.barcodeBlockNumber());
 		
 		Assert.assertNull( l.extractBarcode(read));
-		Assert.assertEquals(spl, l.extractSampleSequence(read));
+		Assert.assertEquals(spl, l.extractSample(read, 1));
 		Assert.assertNull(l.extractUMI(read));	
 	}
 	
@@ -366,7 +417,7 @@ public class ReadLayoutTest {
 		Assert.assertEquals(1, l.barcodeBlockNumber());
 		
 		Assert.assertEquals( bc, l.extractBarcode(read));
-		Assert.assertNull(l.extractSampleSequence(read));
+		Assert.assertNull(l.extractSample(read));
 		Assert.assertNull(l.extractUMI(read));	
 	}
 	

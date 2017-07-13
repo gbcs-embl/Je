@@ -34,7 +34,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 
-import org.embl.gbcs.je.jemultiplexer.BarcodeMatch;
+import org.embl.gbcs.je.BarcodeMatch;
 import org.junit.Assert;
 import org.junit.Test;
 

@@ -767,7 +767,7 @@ public class MarkDuplicatesWithMolecularCode extends AbstractMarkDuplicatesComma
 			ReadEndsForMarkDuplicatesWithMolecularCode best = null;
 
 			/** All read ends should have orientation FF, FR, RF, or RR **/
-			/** we only look up the best one if this is not the UNDEF group OR UDEF is the only returned group**/
+			/** we only look up the best one if this is not the UNDEF group OR UNDEF is the only returned group**/
 			if(!isUNDEFGroup || undef_is_only_group){
 				for (final ReadEndsForMarkDuplicatesWithMolecularCode end : list) {
 					if (end.score > maxScore || best == null) {
@@ -786,7 +786,7 @@ public class MarkDuplicatesWithMolecularCode extends AbstractMarkDuplicatesComma
 			}
 
 			if (this.READ_NAME_REGEX != null) {
-				AbstractMarkDuplicatesCommandLineProgram.trackOpticalDuplicates(list, opticalDuplicateFinder, libraryIdGenerator);
+				AbstractMarkDuplicatesCommandLineProgram.trackOpticalDuplicates(list, best, opticalDuplicateFinder, libraryIdGenerator);
 			}
 		}
 	}

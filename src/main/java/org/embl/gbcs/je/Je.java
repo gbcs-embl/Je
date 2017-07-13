@@ -26,7 +26,9 @@ package org.embl.gbcs.je;
 import java.util.Set;
 import java.util.TreeSet;
 
+import org.embl.cg.utilitytools.utils.ExceptionUtil;
 import org.embl.cg.utilitytools.utils.StringUtil;
+import org.embl.gbcs.je.demultiplexer.Jedemultiplex;
 import org.embl.gbcs.je.jeclipper.Jeclipper;
 import org.embl.gbcs.je.jedropseq.Jedropseq;
 import org.embl.gbcs.je.jeduplicates.MarkDuplicatesWithMolecularCode;
@@ -48,6 +50,7 @@ public class Je  {
 	private static Logger log = LoggerFactory.getLogger(Je.class);
 
 	
+	public static final String COMMAND_DEMULTIPLEX = "debarcode"; 
 	public static final String COMMAND_DROPSEQ = "dropseq"; 
 	public static final String COMMAND_CLIP = "clip"; 
 	public static final String COMMAND_DUPES = "markdupes";
@@ -62,6 +65,7 @@ public class Je  {
 		ALLOWED_COMMANDS.add(COMMAND_MULTIPLEX);
 		ALLOWED_COMMANDS.add(COMMAND_MULTIPLEX_ILLUMINA);
 		ALLOWED_COMMANDS.add(COMMAND_DROPSEQ);
+		ALLOWED_COMMANDS.add(COMMAND_DEMULTIPLEX);
 		
 	}
 	
@@ -90,49 +94,57 @@ public class Je  {
 			System.exit(0); 
 		}
 		else if(!ALLOWED_COMMANDS.contains(option.toLowerCase())){
-			System.err.println("Unknown command name : "+option);
-			System.err.println(getUsage());
+			System.err.println("Unknown command name : "+option+" ; please check help with -h");
+			//System.err.println(getUsage());
 			System.exit(1); //error
 		}
 		
 		/*
 		 * looks good , we delegate to proper implementation
 		 */
-		String [] argv = {"-h"}; // init to get help
-		if(args.length > 1){
-			argv = StringUtil.subArray(args, 1, args.length-1);
-		}
-		if(option.equalsIgnoreCase(COMMAND_CLIP)){
-			new Jeclipper().instanceMainWithExit(argv); 
-		}
-		else if(option.equalsIgnoreCase(COMMAND_MULTIPLEX)){
-			new Jemultiplexer().instanceMainWithExit(argv);
-		}
-		else if(option.equalsIgnoreCase(COMMAND_MULTIPLEX_ILLUMINA)){
-			new JemultiplexerIllumina().instanceMainWithExit(argv);
-		}
-		else if(option.equalsIgnoreCase(COMMAND_DUPES)){
-			new MarkDuplicatesWithMolecularCode().instanceMainWithExit(argv);
-		}
-		else if(option.equalsIgnoreCase(COMMAND_DROPSEQ)){
-			new Jedropseq().instanceMainWithExit(argv);
-		}
-		else{
-			System.err.println(
-					"FATAL : We just reached a supposedly unreachable part of the code. Please report this bug to Je developpers indicating the options you used i.e. : \n "+
-					StringUtil.mergeArray(args, " ")
-					);
+		try{
+			String [] argv = {"-h"}; // init to get help
+			if(args.length > 1){
+				argv = StringUtil.subArray(args, 1, args.length-1);
+			}
+			if(option.equalsIgnoreCase(COMMAND_CLIP)){
+				new Jeclipper().instanceMainWithExit(argv); 
+			}
+			else if(option.equalsIgnoreCase(COMMAND_DEMULTIPLEX)){
+				new Jedemultiplex().instanceMainWithExit(argv);
+			}
+			else if(option.equalsIgnoreCase(COMMAND_MULTIPLEX)){
+				new Jemultiplexer().instanceMainWithExit(argv);
+			}
+			else if(option.equalsIgnoreCase(COMMAND_MULTIPLEX_ILLUMINA)){
+				new JemultiplexerIllumina().instanceMainWithExit(argv);
+			}
+			else if(option.equalsIgnoreCase(COMMAND_DUPES)){
+				new MarkDuplicatesWithMolecularCode().instanceMainWithExit(argv);
+			}
+			else if(option.equalsIgnoreCase(COMMAND_DROPSEQ)){
+				new Jedropseq().instanceMainWithExit(argv);
+			}
+			else{
+				System.err.println(
+						"FATAL : We just reached a supposedly unreachable part of the code. Please report this bug to Je developpers indicating the options you used i.e. : \n "+
+								StringUtil.mergeArray(args, " ")
+						);
+				System.exit(1); //error
+			}
+		} catch(Exception e){
+			log.error(ExceptionUtil.getStackTrace(e));
 			System.exit(1); //error
 		}
-		
 	}
 
 	protected static String getUsage(){
 		return "Usage:   je <command> [options] \n\n"+
 				"with command in : \n"
 				+"\t "+COMMAND_CLIP+"      \t\t clips molecular barcodes from fastq sequence and places them in read name headers for further use in 'dupes' module\n"
-				+"\t "+COMMAND_MULTIPLEX+" \t\t demultiplex fastq file(s), with optional handling of molecular barcodes for further use in 'dupes' module\n"
-				+"\t "+COMMAND_MULTIPLEX_ILLUMINA+" \t demultiplex fastq file(s) using Illumina Index files, with optional handling of molecular barcodes for further use in 'dupes' module\n"
+				+"\t "+COMMAND_DEMULTIPLEX+" \t\t demultiplexes fastq file(s), with optional handling of molecular barcodes for further use in 'dupes' module\n"
+				+"\t "+COMMAND_MULTIPLEX+" \t\t demultiplexes fastq file(s) with Je 1.x implementation, with optional handling of molecular barcodes for further use in 'dupes' module\n"
+				+"\t "+COMMAND_MULTIPLEX_ILLUMINA+" \t demultiplexes fastq file(s) using Illumina Index files with Je 1.x implementation, with optional handling of molecular barcodes for further use in 'dupes' module\n"
 				+"\t "+COMMAND_DUPES+"     \t\t removes read duplicates based on molecular barcodes found in read name headers (as produced by clip or plex)\n"
 				+"\t "+COMMAND_DROPSEQ+"    \t\t clips cell barcode and UMI from read 1 and adds them to header of read 2. This command is for processing drop-seq results.\n"
 				+"\n"

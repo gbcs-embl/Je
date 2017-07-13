@@ -27,6 +27,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -36,16 +38,17 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Describe the read layout i.e. indicates where barcode, UMI, fixed bases and sample sequences are located. 
- * Barcodes, UMIs and read sequence are specified using a "<BLOCKCODE:length>" while fixed bases are depicted using ATCGN directly.
- * The following BLOCKCODE are supported :    
- * <ul>
- * <li>BARCODE, expects a fixed length e.g. <BARCODEn:6> ; where 'n' is an optional number to uniquely identify this barcode slot </li>
- * <li>UMI, expects a fixed length e.g. <UMIn:8> ; where 'n' is an optional number to uniquely identify this umi slot</li>
- * <li>SAMPLE, expects a fixed length or "x" e.g. <SAMPLEn:30> or <SAMPLE:x> ; where 'n' is an optional number to uniquely identify this sample sequence slot
- * When no length ('x') is specified, all the sequence till the end is considered. 
- * When a length is provided, the exact sequence length is considered (any extra bases are discarded). 
- * Negative values are also supported to indicate all but the last x bases ; this is only accepted when the SAMPLE block is the last one
- * </li>
+ * Barcodes, UMIs and read sequence are specified using a "<BLOCKCODEn:length>" while fixed bases are depicted using ATCGN directly.
+ * The BLOCKCODE 'BARCODE', 'UMI' and 'SAMPLE' are supported with :  
+ * <ol>
+ * <li> 'n' is a number to uniquely identify this barcode slot ; please starts numbering at 1. Note that Je expects 
+ * continuous series of indices for each block (1,2,3 ...n). 'n' can be omitted only if a unique block of a particular
+ *  BLOCKCODE is found across all read layout</li>
+ * <li> Obvioulsy, when a length is provided, the exact sequence length is considered (any extra bases are discarded) </li> 
+ * <li> When no length ('x') is specified, all the sequence till the end is considered ; it only possible to use the 'x' 
+ * shortcut in the last block of a layout</li>
+ * <li> When a negative value is given in place of length (e.g. '<BLOCKCODEn:-2>'), all but the last x (2 in the 
+ * '<BLOCKCODEn:-2>' example) bases ; a negative length value is only acceptedin the last block of a layout</li>
  * </ul>
  * 
  * <br/>
@@ -103,7 +106,7 @@ public class ReadLayout {
 	protected static final String LABEL_FOR_BARCODE = "Barcode";
 	protected static final String LABEL_FOR_UMI = "UMI";
 
-	protected static final String CHAR_FOR_SAMPLE = "X";
+	protected static final String CHAR_FOR_SAMPLE = "S";
 	protected static final String CHAR_FOR_BARCODE = "B";
 	protected static final String CHAR_FOR_UMI = "I";
 
@@ -119,22 +122,29 @@ public class ReadLayout {
 	
 	protected List<Integer> umiLength;
 	protected List<Integer> bcLength;
-	//protected List<Integer> sampleSequenceLength; 
-	protected Integer sampleSequenceLength; //a unique sample sequence block is currently supported
+	protected List<Integer> sampleSequenceLength; 
+	
 	
 	protected List<Integer> umiStart;
 	protected List<Integer> bcStart;
-	//protected List<Integer> sampleSequenceStart;
-	protected Integer sampleSequenceStart; //a unique sample sequence block is currently supported
+	protected List<Integer> sampleSequenceStart;
+	
 	
 	/*
 	 * BLOCK Id i.e. the number associated to the blocks i.e. is 2 from <SAMPLE2:x> or <UMI2:6> ;
 	 *  defaults to '1' when no id is found e.g <SAMPLE:x>
 	 *  The maps map the block ID to its position in the layout
-	 */
-	protected Integer sampleBlockId; 
+	 */ 
+	protected Map<Integer, Integer> sampleBlockId2BlockPosition;
 	protected Map<Integer, Integer> umiBlockId2BlockPosition;
 	protected Map<Integer, Integer> bcBlockId2BlockPosition;
+	protected List<Integer> sampleBlockIdOrdered;
+	protected List<Integer> umiBlockIdOrdered;
+	protected List<Integer> bcBlockIdOrdered;
+	
+	protected Pattern blockP = Pattern.compile("<("+BLOCKCODE_SAMPLE+"|"+BLOCKCODE_BARCODE+"|"+BLOCKCODE_UMI+")(\\d?):(-?[0-9x]+)>");
+	protected String layoutValidationRegex = "^([a-zA-Z]*<("+BLOCKCODE_SAMPLE+"|"+BLOCKCODE_BARCODE+"|"+BLOCKCODE_UMI+")(\\d?):(-?[0-9x]+)>[a-zA-Z]*)+$";
+	
 	
 	public ReadLayout(String layout){
 		this.layout = layout;
@@ -145,97 +155,113 @@ public class ReadLayout {
 	 * Process the layout and initialize useful variables
 	 */
 	public void parseLayout(){
-		Pattern umiBlockP = Pattern.compile("<"+BLOCKCODE_UMI+"(\\d?):(\\d+)>");
-		Pattern bcBlockP = Pattern.compile("<"+BLOCKCODE_BARCODE+"(\\d?):(\\d+)>");
-		Pattern readBlockP = Pattern.compile("<"+BLOCKCODE_SAMPLE+"(\\d?):(-?[0-9x]+)>");
+		
+		if(!Pattern.matches(layoutValidationRegex, layout)){
+			throw new LayoutMalformedException("Layout does not match validation regex '"+layoutValidationRegex+"'", layout);
+		}
 		
 		String flatlayout = new String(layout); //copy the layout
 		log.debug(flatlayout);
+		
 		/*
 		 * Look for the different blocks, the idea is to replace each block in the layout with a flatlayout ie :
 		 * <br />
 		 * NN<BARCODE:6>N<UMI:8>A<SAMPLE:x>
 		 * <br /> then becomes
-		 * NNBBBBBBNIIIIIIIIAXXXXX
+		 * NNBBBBBBNIIIIIIIIASSSSS
 		 * <br />
 		 * 
-		 */
-				
+		 */		
 		
-		// look for UMI blocks
-		int i = 0;
+		// init all 
+		int umiCnt = 0;
 		umiLength = new ArrayList<Integer>();
 		umiStart = new ArrayList<Integer>();
 		umiBlockId2BlockPosition = new HashMap<Integer, Integer>();
-		while(flatlayout.contains(BLOCKCODE_UMI)){
-			hasUMIBlock = true;
-			int l = getBlockLength(umiBlockP, LABEL_FOR_UMI, flatlayout);
-			int blockNumber = getBlockNumber(umiBlockP, LABEL_FOR_UMI, flatlayout);
-			log.debug("got block len of "+l);
-			flatlayout = replaceBlock(flatlayout, umiBlockP, CHAR_FOR_UMI, l);
-			umiLength.add( l );
-			umiBlockId2BlockPosition.put(blockNumber, i);
-			i++;
-			log.debug(flatlayout);
-		}
-		
-		// look for BARCODE blocks
-		i = 0;
+		umiBlockIdOrdered = new ArrayList<Integer>();
+		int smpCnt = 0;
+		sampleSequenceLength = new ArrayList<Integer>();
+		sampleSequenceStart = new ArrayList<Integer>();
+		sampleBlockId2BlockPosition = new HashMap<Integer, Integer>();
+		sampleBlockIdOrdered = new ArrayList<Integer>();
+		int bcCnt = 0;
 		bcLength = new ArrayList<Integer>();
 		bcStart = new ArrayList<Integer>();
 		bcBlockId2BlockPosition = new HashMap<Integer, Integer>();
-		while(flatlayout.contains(BLOCKCODE_BARCODE)){
-			hasBarcodeBlock = true;
-			int l = getBlockLength(bcBlockP, LABEL_FOR_BARCODE, flatlayout);
-			int blockNumber = getBlockNumber(bcBlockP, LABEL_FOR_BARCODE, flatlayout);
-			flatlayout = replaceBlock(flatlayout, bcBlockP, CHAR_FOR_BARCODE, l);
-			bcLength.add( l );
-			bcBlockId2BlockPosition.put(blockNumber, i);
-			i++;
+		bcBlockIdOrdered = new ArrayList<Integer>();
+		
+		Matcher layoutMatcher = blockP.matcher(layout);
+		boolean previousLengthWasIncomplete = false;
+		while(layoutMatcher.find()){
+			//we get a new block mathc
+			if(previousLengthWasIncomplete){
+				throw new LayoutMalformedException(
+						"Undefined (i.e. 'x') or negative block length are only allowed in the last block.", layout);
+			}
+			String blockType = layoutMatcher.group(1);
+			int blockNumber = getBlockNumber(blockType, layoutMatcher.group(2));
+			Integer l = getBlockLength(blockType, layoutMatcher.group(3));
+			if(l == null || l < 0){
+				previousLengthWasIncomplete = true;
+			}
+			String wholeMatch = layoutMatcher.group(0);
+			log.debug(
+					wholeMatch+ " => \n" + 
+							"  Type = "+blockType+"\n" +
+							"  Idx = '"+blockNumber+"'\n" +
+							"  Len = "+l+"\n" 
+							);
+			if(blockType.equals(BLOCKCODE_BARCODE)){
+				hasBarcodeBlock = true;
+				bcLength.add( l );
+				bcBlockId2BlockPosition.put(blockNumber, bcCnt);
+				bcBlockIdOrdered.add(blockNumber);
+				bcCnt++;
+				flatlayout = replaceBlock(flatlayout, wholeMatch, CHAR_FOR_BARCODE, (l==null || l <=0 ? 1:l));
+			}
+			else if(blockType.equals(BLOCKCODE_UMI)){
+				hasUMIBlock = true;
+				umiLength.add( l );
+				umiBlockId2BlockPosition.put(blockNumber, umiCnt);
+				umiBlockIdOrdered.add(blockNumber);
+				umiCnt++;
+				flatlayout = replaceBlock(flatlayout, wholeMatch, CHAR_FOR_UMI, (l==null || l <=0 ? 1:l));
+			}
+			else if(blockType.equals(BLOCKCODE_SAMPLE)){
+				hasSampleBlock = true;
+				sampleSequenceLength.add( l );
+				sampleBlockId2BlockPosition.put(blockNumber, smpCnt);
+				sampleBlockIdOrdered.add(blockNumber);
+				smpCnt++;
+				flatlayout = replaceBlock(flatlayout, wholeMatch, CHAR_FOR_SAMPLE, (l==null || l <=0 ? 1:l));
+			}
+			else{
+				throw new Jexception("Unknown block type in read layout : "+blockType);
+			}
 			log.debug(flatlayout);
 		}
-		
-		// look for sample sequence blocks
-		if(flatlayout.contains(BLOCKCODE_SAMPLE)){
-			hasSampleBlock = true;
-			Integer l = getBlockLength(readBlockP, LABEL_FOR_SAMPLE, flatlayout);
-			sampleBlockId = getBlockNumber(readBlockP, LABEL_FOR_SAMPLE, flatlayout);
-			flatlayout = replaceBlock(flatlayout, readBlockP, CHAR_FOR_SAMPLE, (l==null || l <=0 ? 1:l));
-			sampleSequenceLength = l;
-			if(l==null || l <=0 ){
-				//the block had to be the last one ; check this 
-				if(flatlayout.contains("<")){
-					throw new ReadLayoutMalformedException(
-							"The use of "
-									+ (l==null?" the 'x'" : " a negative ("+l+")")
-									+" value is only accepted if the "+BLOCKCODE_SAMPLE+" block is the last one; which is not the case. \n"
-									+ "Currently flatten to "+flatlayout+")", layout);
-				}
-				//ok then 
-			}
-		}
+	
 		
 		/*
 		 * At this step all block replacement should have occurred and the flat layout should only be made of ACTGUNXIB letters
 		 */
 		log.debug(flatlayout);
 		if(!Pattern.matches("[ACTGUN"+CHAR_FOR_BARCODE+CHAR_FOR_SAMPLE+CHAR_FOR_UMI+"]+", flatlayout)){
-			throw new ReadLayoutMalformedException(
+			throw new LayoutMalformedException(
 					"Read layout contains unexpected characters! \n"
 							+ "End of layout flattening is : "+flatlayout+")", layout);
 		}
 		
 		if(!hasBarcodeBlock && !hasSampleBlock && !hasUMIBlock){
-			throw new ReadLayoutMalformedException("Not a single block found in layout!", layout);
+			throw new LayoutMalformedException("Not a single block found in layout!", layout);
 		}
 		
 		
 		//extract start positions and block names now
 		if(hasUMIBlock){
 			for (int j = 0; j < umiLength.size(); j++) {
-				int len = umiLength.get(j);
-				String repeat = String.format("%0" + len + "d", 0).replace("0",CHAR_FOR_UMI);
-				int sta = flatlayout.indexOf(repeat, (j == 0 ? 0 : umiStart.get(j-1)+umiLength.get(j-1)) );
+				Integer len = umiLength.get(j);
+				int sta = nextStartInLayout(flatlayout, CHAR_FOR_UMI, len, (j == 0 ? 0 : umiStart.get(j-1)+umiLength.get(j-1)) );
 				log.debug(LABEL_FOR_UMI+" of length "+len+" starts at "+sta);
 				umiStart.add( sta );
 			}
@@ -243,64 +269,72 @@ public class ReadLayout {
 		
 		if(hasBarcodeBlock){
 			for (int j = 0; j < bcLength.size(); j++) {
-				int len = bcLength.get(j);
-				String repeat = String.format("%0" + len + "d", 0).replace("0",CHAR_FOR_BARCODE);
-				int sta = flatlayout.indexOf(repeat, (j == 0 ? 0 : bcStart.get(j-1)+bcLength.get(j-1)) );
+				Integer len = bcLength.get(j);
+				int sta = nextStartInLayout(flatlayout, CHAR_FOR_BARCODE, len, (j == 0 ? 0 : bcStart.get(j-1)+bcLength.get(j-1)) );
 				log.debug(LABEL_FOR_BARCODE+" of length "+len+" starts at "+sta);
 				bcStart.add( sta );
 			}
 		}
 		
 		if(hasSampleBlock){
-			sampleSequenceStart = flatlayout.indexOf(CHAR_FOR_SAMPLE);
-			log.debug(LABEL_FOR_SAMPLE+" of length "+sampleSequenceLength+" starts at "+sampleSequenceStart);
+			for (int j = 0; j < sampleSequenceLength.size(); j++) {
+				Integer len = sampleSequenceLength.get(j);
+				int sta = nextStartInLayout(flatlayout, CHAR_FOR_SAMPLE, len, (j == 0 ? 0 : sampleSequenceStart.get(j-1)+sampleSequenceLength.get(j-1)) );
+				log.debug(LABEL_FOR_SAMPLE+" of length "+len+" starts at "+sta);
+				sampleSequenceStart.add( sta );
+			}
 		}
-		
-		//final check : the sample block must be the last one for layout with a sample block
-		if(hasSampleBlock){
-			for(int s: umiStart){
 
-				if(s > sampleSequenceStart ){
-					throw new ReadLayoutMalformedException("The "+BLOCKCODE_SAMPLE+" block is not the last 3' block of your layout while it must : at least one "+BLOCKCODE_UMI+" block is found after", layout);
-				}
-			}
-			for(int s: bcStart){
-				if(s > sampleSequenceStart ){
-					throw new ReadLayoutMalformedException("The "+BLOCKCODE_SAMPLE+" block is not the last 3' block of your layout while it must : at least one "+BLOCKCODE_BARCODE+" block is found after", layout);
-				}
-			}
-		}
 	}
-	
-	private String replaceBlock(String flatlayout, Pattern pat,
-			String charToRepeat, Integer len) {
-		String repeat = String.format("%0" + len + "d", 0).replace("0",charToRepeat);
-		Matcher m = pat.matcher(flatlayout);
-		flatlayout = m.replaceFirst(repeat);
-		return flatlayout;
+
+	private int nextStartInLayout(String flatlayout, String blockChar,
+			Integer len, int from) {
+		int l = (len!=null && len > 0 ? len : 1);
+		String repeat = String.format("%0" + l + "d", 0).replace("0",blockChar);
+		return flatlayout.indexOf(repeat, from );
 	}
 
 	/**
-	 * @param pat the pattern 
-	 * @param blockName for error reporting only, use a user meaningful name here 
-	 * @return null if block has unlimited length
-	 * @throws ReadLayoutMalformedException is pattern can't be matched or is invalid
+	 * @param flatlayout
+	 * @param l
 	 */
-	private Integer getBlockLength(Pattern pat, String blockName, String flatlayout) {
-		Matcher m = pat.matcher(flatlayout);
-		if(!m.find()){
-			throw new ReadLayoutMalformedException("Malformed read layout : block for "+blockName+" could not be found ! ", layout);
+	protected void validateBlockLengthWithLayout(String flatlayout, Integer l) {
+		if(l==null || l <=0 ){
+			//the block had to be the last one ; check this 
+			if(flatlayout.contains("<")){
+				throw new LayoutMalformedException(
+						"The use of "
+								+ (l==null?" the 'x'" : " a negative ("+l+")")
+								+" value is only accepted if the block is the last one; which is not the case. \n"
+								+ "Currently flatten to "+flatlayout+")", layout);
+			}
+			//ok then 
 		}
-		
+	}
+	
+
+	
+	private String replaceBlock(String flatlayout, String toReplace,
+			String charToRepeat, Integer len) {
+		String repeat = String.format("%0" + len + "d", 0).replace("0",charToRepeat);
+		return flatlayout.replace(toReplace, repeat);
+	}
+
+	/**
+	 * @param blockName for error reporting only, use a user meaningful name here 
+	 * @param token the string extracted from layout for the length 
+	 * @return null if block has unlimited length
+	 * @throws LayoutMalformedException is pattern can't be matched or is invalid
+	 */
+	private Integer getBlockLength(String blockName, String token) {	
 		Integer l = null;  
-		String token = m.group(2);
 		try {
 			l = Integer.parseInt(token);
 		} catch (NumberFormatException e) {
 			// if it is 'x' it is fine
 			if( !token.equalsIgnoreCase("x")){
 				//then it is a format error
-				throw new ReadLayoutMalformedException("Malformed read block : length in block for "+blockName+" should be specified with a valid number or 'x'! ", layout);
+				throw new LayoutMalformedException("Malformed read block : length in block for "+blockName+" should be specified with a valid number or 'x'! ", layout);
 			}
 		}
 		return l;
@@ -308,19 +342,13 @@ public class ReadLayout {
 	}
 	
 	/**
-	 * @param pat the pattern 
+	 * @param token the string extracted from layout for the block index 
 	 * @param blockName for error reporting only, use a user meaningful name here 
-	 * @return the number found next to the bllock name i.e. 2 from <UMI2:6>; or 1 if block has no number
-	 * @throws ReadLayoutMalformedException is pattern can't be matched or is invalid
+	 * @return the number found next to the block name i.e. 2 from <UMI2:6>; or 1 if block has no number
+	 * @throws LayoutMalformedException is pattern can't be matched or is invalid
 	 */
-	private Integer getBlockNumber(Pattern pat, String blockName, String flatlayout) {
-		Matcher m = pat.matcher(flatlayout);
-		if(!m.find()){
-			throw new ReadLayoutMalformedException("Malformed read layout : block for "+blockName+" could not be found ! ", layout);
-		}
-		
-		Integer l = null;  
-		String token = m.group(1);
+	private Integer getBlockNumber(String blockName, String token) {
+		Integer l = null;  	
 		if(token == null || token.isEmpty())
 			return 1;
 		
@@ -328,7 +356,7 @@ public class ReadLayout {
 			l = Integer.parseInt(token);
 		} catch (NumberFormatException e) {
 			//then it is a format error
-			throw new ReadLayoutMalformedException("Malformed read block : block number for "+blockName+" should be specified with a valid number or absent ", layout);
+			throw new LayoutMalformedException("Malformed read block : block number for "+blockName+" should be specified with a valid number or absent ", layout);
 		}
 		return l;
 		
@@ -357,6 +385,65 @@ public class ReadLayout {
 	
 	
 	/**
+	 * @return the unique set of SAMPLE ids or an empty set 
+	 */
+	public Set<Integer> getSampleBlockUniqueIds(){
+		if(!containsSampleSequence())
+			return new TreeSet<Integer>();
+		return this.sampleBlockId2BlockPosition.keySet();
+	}
+	
+	
+	/**
+	 * @return the SAMPLE ids in the order they are found (from 5 to 3')
+	 */
+	public List<Integer> getOrderedSampleBlockUniqueIds(){
+		if(!containsBarcode())
+			return new ArrayList<Integer>();
+		
+		return this.sampleBlockIdOrdered;
+	}
+	
+	/**
+	 * @return the unique set of BARCODE ids or an empty set 
+	 */
+	public Set<Integer> getBarcodeBlockUniqueIds(){
+		if(!containsBarcode())
+			return new TreeSet<Integer>();
+		return this.bcBlockId2BlockPosition.keySet();
+	}
+	
+	/**
+	 * @return the BARCODE ids in the order they are found (from 5 to 3')
+	 */
+	public List<Integer> getOrderedBarcodeBlockUniqueIds(){
+		if(!containsBarcode())
+			return new ArrayList<Integer>();
+		
+		return this.bcBlockIdOrdered;
+	}
+	
+	
+	/**
+	 * @return the unique set of UMI ids or an empty set 
+	 */
+	public Set<Integer> getUMIBlockUniqueIds(){
+		if(!containsUMI())
+			return new TreeSet<Integer>();
+		return this.umiBlockId2BlockPosition.keySet();
+	}
+	
+	/**
+	 * @return the UMI ids in the order they are found (from 5 to 3')
+	 */
+	public List<Integer> getOrderedUMIBlockUniqueIds(){
+		if(!containsUMI())
+			return new ArrayList<Integer>();
+		
+		return this.umiBlockIdOrdered;
+	}
+	
+	/**
 	 * @return the number of UMI block number found in this layout
 	 */
 	public int umiBlockNumber(){
@@ -378,6 +465,16 @@ public class ReadLayout {
 	}
 	
 	/**
+	 * @return the number of SAMPLE block number found in this layout
+	 */
+	public int sampleBlockNumber(){
+		if(!hasSampleBlock)
+			return 0;
+		
+		return sampleSequenceStart.size();
+	}
+	
+	/**
 	 * Extract the subsequence(s) corresponding to the UMI blocks in the read layout
 	 * 
 	 * @param read the whole read or quality string
@@ -390,8 +487,8 @@ public class ReadLayout {
 		String [] umis = new String[umiStart.size()];
 		for (int i = 0; i < umiStart.size(); i++) {
 			int start = umiStart.get(i);
-			int len = umiLength.get(i);
-			umis[i] = read.substring(start, start+len);
+			Integer len = umiLength.get(i);
+			umis[i] = extract(read, start, len);
 		}
 		
 		return umis;
@@ -437,8 +534,8 @@ public class ReadLayout {
 		
 		int i = umiBlockId2BlockPosition.get(umiBlockId);
 		int start = umiStart.get(i);
-		int len = umiLength.get(i);
-		return read.substring(start, start+len);
+		Integer len = umiLength.get(i);
+		return extract(read, start, len);
 	}
 	
 	/**
@@ -467,8 +564,8 @@ public class ReadLayout {
 		
 		int i = bcBlockId2BlockPosition.get(bcBlockId);
 		int start = bcStart.get(i);
-		int len = bcLength.get(i);
-		return read.substring(start, start+len);
+		Integer len = bcLength.get(i);
+		return extract(read, start, len);
 	}
 	
 	
@@ -485,8 +582,8 @@ public class ReadLayout {
 		String [] bcs = new String[bcStart.size()];
 		for (int i = 0; i < bcStart.size(); i++) {
 			int start = bcStart.get(i);
-			int len = bcLength.get(i);
-			bcs[i] = read.substring(start, start+len);
+			Integer len = bcLength.get(i);
+			bcs[i] = extract(read, start, len);
 		}
 		
 		return bcs;
@@ -507,23 +604,83 @@ public class ReadLayout {
 	}
 	
 	
+	
 	/**
+	 * Extract the subsequence(s) corresponding to a particular SAMPLE block identified by its Id i.e. '3' from <SAMPLE3:6> 
+	 * in the read layout . 
+	 * 
 	 * @param read the whole read or quality string
-	 * @return the read subsequence or null if this layout has no SAMPLE block
+	 * @param bcBlockId the SAMPLE block id i.e. '3' from a layout like <SAMPLE3:6> ; this is NOT the 5' to 3' 
+	 * order number in which SAMPLE blocks were described in the layout. 
+	 * For example, the <SAMPLE3:6> slot is the "first" BARCODE block in the layout "<UMI2:6><SAMPLE3:6><BARCODE2:6><SAMPLE:x>"
+	 * but is identified with the ID 3 (i.e. SAMPLE3). 
+	 * Remember that block Id applies to all provided layout i.e. if you described twice SAMPLE3 in different layouts 
+	 * given to Je ; Je understands that these two blocks should contain the same sequence in a read set     
+	 * @return the sequences corresponding to the SAMPLE with ID or null if this layout has no SAMPLE block or no SAMPLE identified with this number
+	 *   
 	 */
-	public String extractSampleSequence(String read){
+	public String extractSample(String read, int bcBlockId){
+		if(!hasSampleBlock ){
+			log.error("NO SAMPLE block in this layout : "+this.layout);
+			return null;
+		}
+		if(!sampleBlockId2BlockPosition.containsKey(bcBlockId)){
+			log.error("NO SAMPLE block with ID "+bcBlockId +" in this layout : "+this.layout);
+			return null;
+		}
+		
+		int i = sampleBlockId2BlockPosition.get(bcBlockId);
+		int start = sampleSequenceStart.get(i);
+		Integer len = sampleSequenceLength.get(i);
+		
+		return extract(read, start, len);
+	}
+	
+	/**
+	 * 
+	 * Extract the subsequence(s) corresponding to the SAMPLE blocks in the read layout
+	 * 
+	 * @param read the whole read or quality string
+	 * @return the sample subsequences or null if this layout has no SAMPLE block
+	 */
+	public String[] extractSamples(String read){
 		if(!hasSampleBlock)
 			return null;
-		
-		if(sampleSequenceLength == null){
-			//take all 
-			return read.substring(sampleSequenceStart);
+		String [] _sampleSeqs = new String[sampleSequenceStart.size()];
+		for (int i = 0; i < sampleSequenceStart.size(); i++) {
+			int start = sampleSequenceStart.get(i);
+			Integer len = sampleSequenceLength.get(i);
+			_sampleSeqs[i] = extract(read, start, len);
 		}
-		else if(sampleSequenceLength>0){
-			return read.substring(sampleSequenceStart, sampleSequenceStart+sampleSequenceLength);
+		
+		return _sampleSeqs;
+	}
+	
+	
+	/**
+	 * Extract the subsequence(s) corresponding to the SAMPLE blocks in the read layout
+	 * and merge them in a unique String (following the 5' to 3' order on the layout)
+	 * 
+	 * @param read the whole read or quality string
+	 * @return the sequences corresponding to the SAMPLE or null if this layout has no SAMPLE block
+	 */
+	public String extractSample(String read){
+		if(!hasSampleBlock)
+			return null;
+		return StringUtil.mergeArray( extractSamples(read) , "" );
+	}
+	
+	
+	private String extract(String read, int start, Integer len) {
+		if(len == null){
+			//take all 
+			return read.substring(start);
+		}
+		else if(len>0){
+			return read.substring(start, start+len);
 		}
 		else{
-			return read.substring(sampleSequenceStart, read.length()+sampleSequenceLength);
+			return read.substring(start, read.length()+len);
 		}
 	}
 	
