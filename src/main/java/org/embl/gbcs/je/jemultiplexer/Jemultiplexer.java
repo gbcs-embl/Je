@@ -772,10 +772,11 @@ public class Jemultiplexer extends AbstractJemultiplexer {
 						chosen_sample=spl1;
 					}
 					else{
-						//look int delta
-						if(bc1.mismatchesToSecondBest!=bc2.mismatchesToSecondBest){
-							chosen_sample = bc1.mismatchesToSecondBest>bc2.mismatchesToSecondBest? spl1:spl2;
-						}
+						//look int delta : we don t do this anymore in v1.2
+						// this was a bug as it always resolve to the same sample when barcodes have no mismatches (see above)  
+//						if(bc1.mismatchesToSecondBest!=bc2.mismatchesToSecondBest){
+//							chosen_sample = bc1.mismatchesToSecondBest>bc2.mismatchesToSecondBest? spl1:spl2;
+//						}
 					}
 				}
 			}
