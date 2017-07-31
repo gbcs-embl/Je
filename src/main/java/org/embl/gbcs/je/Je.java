@@ -134,7 +134,7 @@ public class Je  {
 				+"\t "+COMMAND_MULTIPLEX+" \t\t demultiplex fastq file(s), with optional handling of molecular barcodes for further use in 'dupes' module\n"
 				+"\t "+COMMAND_MULTIPLEX_ILLUMINA+" \t demultiplex fastq file(s) using Illumina Index files, with optional handling of molecular barcodes for further use in 'dupes' module\n"
 				+"\t "+COMMAND_DUPES+"     \t\t removes read duplicates based on molecular barcodes found in read name headers (as produced by clip or plex)\n"
-				+"\t "+COMMAND_DROPSEQ+"    \t\t clips cell barcode and UMI from read 1 and adds them to header of read 2. This command is for processing drop-seq results.\n"
+				//+"\t "+COMMAND_DROPSEQ+"    \t\t clips cell barcode and UMI from read 1 and adds them to header of read 2. This command is for processing drop-seq results.\n"
 				+"\n"
 				+"Version : "+getVersion()
 				;
