@@ -173,7 +173,8 @@ public abstract class AbstractJemultiplexer extends CommandLineProgram {
 					+" When true and if only one of the two reads has a barcode match, the read pair is 'unassigned'.\n"
 					+" When false and if only one of the two reads has a barcode match, the read pair is assigned to the\n"
 					+" corresponding sample\n"
-					+ "When reads resolve to different samples, the read pair is always 'unassigned'.\n"
+					+ "When false and reads resolve to different samples, the read pair with the lowest mismatch is chosen\n "
+					+ "(read pair is 'unassigned' in case of mismatch equality).\n"
 			)
 	public boolean STRICT = false;
 
