@@ -5,7 +5,7 @@
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 # echo $DIR
 # path to jar file to execute, this jar is supposed to be in the same dir as this script
-JAR_FILE=$DIR"/je_1.1_bundle.jar"
+JAR_FILE=$DIR"/je_1.2_bundle.jar"
 
 # set default _JAVA_OPTIONS
 _JAVA_OPTIONS=${_JAVA_OPTIONS:-'-Xmx4G -Xms256m'}
