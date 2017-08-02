@@ -3,11 +3,12 @@
     <macros>
         <import>macros.xml</import>
     </macros>
+    <expand macro="requirements" />
     <stdio>
         <exit_code range="1:" level="fatal" description="Tool exception" />
     </stdio>
-    <version_command>echo '1.0'</version_command>
-    <command interpreter="bash">
+    <expand macro="version_command" />
+    <command>
 <![CDATA[
     je demultiplex-illu
 
@@ -93,7 +94,7 @@
             <param name="MM" value="3"/>
             <param name="MMD" value="2"/>
             <param name="Q" value="20"/>
-	    <param name="DIAG" value="false"/>
+	        <param name="DIAG" value="false"/>
             <output name="METRICS_FILE_NAME" file="illu_summary_PE.txt" ftype="tabular" lines_diff="4">
                 <discovered_dataset designation="unassigned_1" file="illu_unassigned_1_PE.txt" />
                 <discovered_dataset designation="unassigned_2" file="illu_unassigned_2_PE.txt" />
@@ -111,8 +112,7 @@
         </test>
     </tests>
 
-
-  <help>
+    <help>
 <![CDATA[
 **What it does**
 
@@ -423,6 +423,6 @@ This is an exhaustive list of options::
 
     Default value: null.
 ]]>
-  </help>
-
+    </help>
+    <expand macro="citations"/>
 </tool>

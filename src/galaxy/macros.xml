@@ -1,6 +1,14 @@
 <macros>
 
     <token name="@VERSION_STRING@">1.2</token>
+    <xml name="requirements">
+        <requirements>
+            <requirement type="package" version="1.2">je-suite</requirement>
+        </requirements>
+    </xml>
+    <xml name="version_command">
+        <version_command>je version 2&gt;&amp;1 | tail -n 1</version_command>
+    </xml>
 
     <token name="@single_or_paired_cmd@">
         #if str( $library.type ) == "single":
@@ -278,7 +286,7 @@ ${from_text_area}</configfile>
     </token>
     <xml name="demultiplexer_common_output_options">
         <param name="KEEP_UNASSIGNED_READ" type="boolean" label="Keep unassigned reads (KEEP_UNASSIGNED_READ)"
-            truealue="true"
+            truevalue="true"
             falsevalue="false"
             checked="true"
         />
@@ -317,11 +325,9 @@ ${from_text_area}</configfile>
             help="Set to empty or null for no replacement."
             value=":"/>
 
-        <param name="GZ" type="boolean" hidden="true" label="Compress output (GZ)"
+        <param name="GZ" type="hidden" label="Compress output (GZ)"
             help="will result in fastq.gz files."
-            truevalue="true"
-            falsevalue="false"
-            checked="false"/>
+            value="false"/>
     </xml>
 
     <token name="@demultiplexer_common_outputs_cmd@">
@@ -336,5 +342,9 @@ ${from_text_area}</configfile>
             <filter>(adv_options['DIAG'] == 'true')</filter>
         </data>
     </xml>
-
+    <xml name="citations">
+        <citations>
+            <citation type="doi">10.1186/s12859-016-1284-2</citation>
+        </citations>
+    </xml>
 </macros>
