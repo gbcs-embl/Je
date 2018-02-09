@@ -54,7 +54,6 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.TreeSet;
-import java.util.regex.Pattern;
 
 import org.apache.commons.lang3.StringUtils;
 import org.embl.cg.utilitytools.utils.FileUtil;
@@ -85,13 +84,13 @@ import picard.sam.markduplicates.util.ReadEndsForMarkDuplicatesMap;
 		usageShort = "je markdupes INPUT=file_with_dupes.bam OUTPUT=result.bam MM=1", 
 		programGroup = SamOrBam.class
 		)
-public class MarkDuplicatesWithMolecularCode extends AbstractMarkDuplicatesCommandLineProgram {
+public class MarkDuplicatesWithMolecularCode2 extends AbstractMarkDuplicatesCommandLineProgram {
 	
 	//a constant used to store all reads (from the same positional duplicate group) that have too many Ns in their molecular code 
 	private static final String DUPES_GROUP_NAME_UNDEF = "UNDEF";
 
 
-	private final Log log = Log.getInstance(MarkDuplicatesWithMolecularCode.class);
+	private final Log log = Log.getInstance(MarkDuplicatesWithMolecularCode2.class);
 
 	
 	@Option(shortName = "MM", optional = false,
@@ -179,6 +178,13 @@ public class MarkDuplicatesWithMolecularCode extends AbstractMarkDuplicatesComma
 	public String SPLIT_CHAR = ":";
 	
 	
+	@Option(shortName = "CTAG", optional = true,
+			printOrder = 5080,
+			doc="Tag to use for duplicate count, default is 'DS'." 
+					)
+	public String DUP_COUNT_TAG = "DS";
+	
+	
 	@Option(shortName = "MAX_FILE_HANDLES",
 			printOrder = 20000, //throw this option to the end
 			doc = "Maximum number of file handles to keep open when spilling read ends to disk. " +
@@ -211,53 +217,22 @@ public class MarkDuplicatesWithMolecularCode extends AbstractMarkDuplicatesComma
 	private int numDuplicateIndices = 0;
 
 	private LibraryIdGenerator libraryIdGenerator = null; // this is initialized in buildSortedReadEndLists
+
+	/*
+	 * stores the number of duplicate reads that had the same UMI. The key is the best read's index in file of such a duplicate pile 
+	 */
+	private HashMap<Long, Integer> dupesChunkCounts = new HashMap<Long, Integer>();
 	
-	public MarkDuplicatesWithMolecularCode() {
+	public MarkDuplicatesWithMolecularCode2() {
 		super();
 		DUPLICATE_SCORING_STRATEGY = ScoringStrategy.SUM_OF_BASE_QUALITIES;
 	}
 
 	/** Stock main method. */
 	public static void main(final String[] args) {
-		new MarkDuplicatesWithMolecularCode().instanceMainWithExit(args);
+		new MarkDuplicatesWithMolecularCode2().instanceMainWithExit(args);
 	}
 
-	
-	
-	private void initReadNameRegexFromRead() {
-		
-		//teh base regex to which will had as many ":[ATGCUNatgcun]+" slots as needed
-		String baseRegex = "(?:.*:)?([0-9]+)[^:]*:([0-9]+)[^:]*:([0-9]+)[^:]*";
-		
-		final SamHeaderAndIterator headerAndIterator = openInputs();
-		final CloseableIterator<SAMRecord> iterator = headerAndIterator.iterator;
-		SAMRecord rec = null;
-		//peek a record
-		while (iterator.hasNext()) {
-			rec = iterator.next();
-			break;
-		}
-		iterator.close();
-		//get read name
-		String name = rec.getReadName();
-		String [] tokens = name.split(":");
-		//start from end : how many slots match a barcode ?
-		int n=0;
-		for(int p = tokens.length -1 ; p>0 ;p-- ){
-			if(Pattern.matches("[ATGCUNatgcun]+", tokens[p]))
-				n++;
-		}
-		
-		for(int i = 0 ; i< n; i++){
-			baseRegex += ":[ATGCUNatgcun]+";
-		}
-		
-		
-		log.debug("READ_NAME_REGEX initialized to "+baseRegex);
-		this.READ_NAME_REGEX = baseRegex;
-	}
-	
-	
 	/**
 	 * Main work method.  Reads the BAM file once and collects sorted information about
 	 * the 5' ends of both ends of each read (or just one end in the case of pairs).
@@ -269,23 +244,6 @@ public class MarkDuplicatesWithMolecularCode extends AbstractMarkDuplicatesComma
 		IOUtil.assertFileIsWritable(OUTPUT);
 		IOUtil.assertFileIsWritable(METRICS_FILE);
 
-		
-		/*
-		 * SET READ_NAME_REGEX to a proper value IF it was not given in the command line
-		 * => Reasoning on command line for READ_NAME_REGEX option
-		 */
-		if(!this.getCommandLine().contains("READ_NAME_REGEX")){
-			/*
-			 * we reset the default READ_NAME_REGEX to accommodate the additional barcode slots added to the read name
-			 * but only it the separator used was ':' and SLOTS or TSLOTS are not null
-			 */
-			if(this.SPLIT_CHAR.equals(':')){ 
-				initReadNameRegexFromRead();
-			}
-			//else the default regex should still work
-		}
-		
-		
 		/*
 		 * Molecular Barcode Support 
 		 * Initialize the MolecularBarcodeFinder
@@ -351,7 +309,7 @@ public class MarkDuplicatesWithMolecularCode extends AbstractMarkDuplicatesComma
 		log.info("Reading input file and constructing read end information.");
 		try{
 			buildSortedReadEndLists();
-		}catch(Jexception jexc){
+		} catch(Jexception jexc){
 			//something is wrong with extracted UMIs
 			log.error(jexc, jexc.getMessage());
 			//exit
@@ -393,8 +351,22 @@ public class MarkDuplicatesWithMolecularCode extends AbstractMarkDuplicatesComma
 		 */
 		Set<Integer> readNameSlotsToIgnore = new TreeSet<Integer>();
 		
+//		List<Long> _indicesdupes = new ArrayList<Long>(dupesChunkCounts.keySet());
+//		Collections.sort(_indicesdupes);
+//		int _c=0;
+//		for (Long long1 : _indicesdupes) {
+//			System.out.println(long1);
+//			_c++;
+//			if(_c>100)
+//				break;
+//		}
+//		_c=0;
 		while (iterator.hasNext()) {
+//			_c++;
+//			if(_c>100)
+//				break;
 			final SAMRecord rec = iterator.next();
+			Integer readNumberInChunk = null; //read number found in a chunk of duplicates (includes the reads not flagged as duplicate) ; remains null if read is a duplicate
 			if (!rec.isSecondaryOrSupplementary()) {
 				final String library = libraryIdGenerator.getLibraryName(header, rec);
 				DuplicationMetrics metrics = libraryIdGenerator.getMetricsByLibrary(library);
@@ -413,7 +385,8 @@ public class MarkDuplicatesWithMolecularCode extends AbstractMarkDuplicatesComma
 					++metrics.READ_PAIRS_EXAMINED; // will need to be divided by 2 at the end
 				}
 
- 				if (recordInFileIndex == nextDuplicateIndex) {
+
+				if (recordInFileIndex == nextDuplicateIndex) {
 					rec.setDuplicateReadFlag(true);
 
 					// Update the duplication metrics
@@ -433,7 +406,17 @@ public class MarkDuplicatesWithMolecularCode extends AbstractMarkDuplicatesComma
 				} else {
 					rec.setDuplicateReadFlag(false);
 				}
+				
+				
+				if(!dupesChunkCounts.containsKey(recordInFileIndex)){
+					log.error("missing expected duplicate chunk size for read index in file "+recordInFileIndex+" in 'dupesChunkCounts' map. This is a bug, please report. ");
+				}
+				 
+				readNumberInChunk = dupesChunkCounts.get(recordInFileIndex);
+				
 			}
+			
+			
 			recordInFileIndex++;
 
 			/*
@@ -470,10 +453,13 @@ public class MarkDuplicatesWithMolecularCode extends AbstractMarkDuplicatesComma
 			} 
 			
 			
-
 			if (!this.REMOVE_DUPLICATES || !rec.getDuplicateReadFlag()) {
 				if (PROGRAM_RECORD_ID != null) {
 					rec.setAttribute(SAMTag.PG.name(), chainedPgIds.get(rec.getStringAttribute(SAMTag.PG.name())));
+				}
+				if(readNumberInChunk != null) {
+					// note that in case of read pairs, each read of the pair will report the same number ie this number corresponds to the number of fragments
+					rec.setAttribute(DUP_COUNT_TAG, readNumberInChunk); 
 				}
 				out.addAlignment(rec);
 				progress.record(rec);
@@ -565,7 +551,10 @@ public class MarkDuplicatesWithMolecularCode extends AbstractMarkDuplicatesComma
 
 		while (iterator.hasNext()) {
 			final SAMRecord rec = iterator.next();
-
+			
+			//boolean logit =  rec.getAlignmentStart() == 16639 || rec.getMateAlignmentStart() == 16639;
+			//if(logit) log.info(rec.toString());
+			
 			// This doesn't have anything to do with building sorted ReadEnd lists, but it can be done in the same pass
 			// over the input
 			if (PROGRAM_RECORD_ID != null) {
@@ -578,13 +567,16 @@ public class MarkDuplicatesWithMolecularCode extends AbstractMarkDuplicatesComma
 			}
 
 			if (rec.getReadUnmappedFlag()) {
+				//if(logit) log.info("this read is UNMAPPED");
 				if (rec.getReferenceIndex() == -1) {
 					// When we hit the unmapped reads with no coordinate, no reason to continue.
 					break;
 				}
 				// If this read is unmapped but sorted with the mapped reads, just skip it.
 			} else if (!rec.isSecondaryOrSupplementary()) {
+				//if(logit) log.info("looking into this read ...");
 				final ReadEndsForMarkDuplicatesWithMolecularCode fragmentEnd = buildReadEnds(header, index, rec);
+				//if(logit) log.info("adding into fragSort : "+fragmentEnd.toString());
 				this.fragSort.add(fragmentEnd);
 
 				if (rec.getReadPairedFlag() && !rec.getMateUnmappedFlag()) {
@@ -595,6 +587,7 @@ public class MarkDuplicatesWithMolecularCode extends AbstractMarkDuplicatesComma
 					if (pairedEnds == null) {
 						pairedEnds = buildReadEnds(header, index, rec);
 						tmp.put(pairedEnds.read2ReferenceIndex, key, pairedEnds);
+						//if(logit) log.info("adding into TMP : \n"+pairedEnds.toString());
 					} else {
 						final int sequence = fragmentEnd.read1ReferenceIndex;
 						final int coordinate = fragmentEnd.read1Coordinate;
@@ -628,9 +621,13 @@ public class MarkDuplicatesWithMolecularCode extends AbstractMarkDuplicatesComma
 
 						pairedEnds.score += DuplicateScoringStrategy.computeDuplicateScore(rec, this.DUPLICATE_SCORING_STRATEGY);
 						this.pairSort.add((ReadEndsForMarkDuplicatesWithMolecularCode)pairedEnds);
+						//if(logit) log.info("adding into pairSort : \n"+pairedEnds.toString());
 					}
 				}
 			}
+//			else{
+//				if(logit) log.info("IGNORING this read (IS secondaryOrSupplementary) ...");
+//			}
 
 			// Print out some stats every 1m reads
 			++index;
@@ -716,13 +713,22 @@ public class MarkDuplicatesWithMolecularCode extends AbstractMarkDuplicatesComma
 				if (nextChunk.size() > 1) {
 					markDuplicatePairs(nextChunk);
 				}
+				else if(nextChunk.size() == 1){
+					saveDupsCountForIndex(nextChunk.get(0).read1IndexInFile, 1);
+					saveDupsCountForIndex(nextChunk.get(0).read2IndexInFile, 1);
+				}
 
 				nextChunk.clear();
 				nextChunk.add(next);
 				firstOfNextChunk = next;
 			}
 		}
-		if (nextChunk.size() > 1) markDuplicatePairs(nextChunk);
+		if (nextChunk.size() > 1){ 
+			markDuplicatePairs(nextChunk);
+		}else if(nextChunk.size() == 1){
+			saveDupsCountForIndex(nextChunk.get(0).read1IndexInFile, 1);
+			saveDupsCountForIndex(nextChunk.get(0).read2IndexInFile, 1);
+		}
 		this.pairSort.cleanup();
 		this.pairSort = null;
 
@@ -739,6 +745,8 @@ public class MarkDuplicatesWithMolecularCode extends AbstractMarkDuplicatesComma
 			} else {
 				if (nextChunk.size() > 1 && containsFrags) {
 					markDuplicateFragments(nextChunk, containsPairs);
+				} else if(nextChunk.size() == 1 && containsFrags){
+					saveDupsCountForIndex(nextChunk.get(0).read1IndexInFile, 1);
 				}
 
 				nextChunk.clear();
@@ -782,15 +790,21 @@ public class MarkDuplicatesWithMolecularCode extends AbstractMarkDuplicatesComma
 	 * @param duplicates list of reads seen as duplicates before molecular code inspection
 	 */
 	private void markDuplicatePairs(final List<ReadEndsForMarkDuplicatesWithMolecularCode> duplicates) {
+		
+		//boolean logit = ( duplicates.get(0).read1Coordinate == 16639 || duplicates.get(0).read2Coordinate == 16639 ); 
+		
 		/*
 		 * Addition for molecular code support (Charles Girardot)
 		 * we split the list based on the molecular codes
 		 */
-		
+//		if(logit)
+//			log.info("## Entering markDuplicatePairs with a new batch of positional dupes");
 		
 		Map<String, List<ReadEndsForMarkDuplicatesWithMolecularCode>> groupsOfDupes = null;
 		if(USE_UMIS){
 			groupsOfDupes = splitDuplicatesByMolecularCodeGroup(duplicates, MISMATCHES, MAX_NUMBER_OF_N);
+//			if(logit)
+//				log.info("  positional dupes were split in "+groupsOfDupes.size()+" UMI chunks");
 		}else{
 			//we put all of the reads into the DUPES_GROUP_NAME_UNDEF: since this is the only group, one read will be kept as normal (see text below)
 			groupsOfDupes = new HashMap<String, List<ReadEndsForMarkDuplicatesWithMolecularCode>>();
@@ -811,26 +825,79 @@ public class MarkDuplicatesWithMolecularCode extends AbstractMarkDuplicatesComma
 		if(groupsOfDupes.size() == 1 && groupsOfDupes.containsKey(DUPES_GROUP_NAME_UNDEF)){
 			undef_is_only_group = true;
 		}
-		for(Entry<String, List<ReadEndsForMarkDuplicatesWithMolecularCode>> e: groupsOfDupes.entrySet()){
-			List<ReadEndsForMarkDuplicatesWithMolecularCode> list = e.getValue();
-			boolean isUNDEFGroup = e.getKey().equals(DUPES_GROUP_NAME_UNDEF);
+		//dupe count from undef group to add up to these other groups
+		int count_from_undef_group_to_add = 0;
+		int count_from_undef_group_added = 0;
+		/*
+		 * we iterate over the groups with UNDEF always as the FIRST, this is important for the logics !!! 
+		 */
+		List<String> orderedGroupNames = sortGroupNames(groupsOfDupes.keySet());
+		int gcnt = 0;
+		
+		for(String group : orderedGroupNames){
+			
+			List<ReadEndsForMarkDuplicatesWithMolecularCode> list = groupsOfDupes.get(group);
+			boolean isUNDEFGroup = group.equals(DUPES_GROUP_NAME_UNDEF);
 			
 			short maxScore = 0;
 			ReadEndsForMarkDuplicatesWithMolecularCode best = null;
 
+			int chunkSize = list.size();
+			//if(logit) log.info(group+" with "+chunkSize);
+			//the chunk size needs to be corrected if we had reads in isUNDEFGroup ie if count_from_undef_group_to_add is not zero
+			if(!isUNDEFGroup && count_from_undef_group_to_add>0){
+				gcnt++; //increment the real chunk number
+				int added_to_this_group=0;
+				// number of reads to add per chunk: do an int division ; each chunk get this additional count
+				int add_to_this_group = count_from_undef_group_to_add / (orderedGroupNames.size()-1); //do not count the UNDEF group
+				chunkSize += add_to_this_group;
+				added_to_this_group += add_to_this_group;
+				//might remain some count ie 
+				int remain = count_from_undef_group_to_add % (orderedGroupNames.size()-1);
+				//each group then get an extra +1 until we run out of remainders
+				if(gcnt <= remain ){
+					chunkSize ++;
+					added_to_this_group++;
+				}
+				
+				//also consider the next 'added_to_this_group' reads from the undef group as part of this chunk and same them in dupesChunkCounts
+				List<ReadEndsForMarkDuplicatesWithMolecularCode> _undef_reads = groupsOfDupes.get(DUPES_GROUP_NAME_UNDEF);
+				for(int i = count_from_undef_group_added; i< (count_from_undef_group_added+added_to_this_group); i++){
+					saveDupsCountForIndex(_undef_reads.get(i).read1IndexInFile, chunkSize);
+					saveDupsCountForIndex(_undef_reads.get(i).read2IndexInFile, chunkSize);
+					
+				}
+				//update count_from_undef_group_added
+				count_from_undef_group_added += added_to_this_group;
+				
+				//if(logit) log.info(group+" with size adjusted to "+chunkSize);
+			}
 			/** All read ends should have orientation FF, FR, RF, or RR **/
-			/** we only look up the best one if this is not the UNDEF group OR UNDEF is the only returned group**/
+			/** we only look up the best one if this is not the UNDEF group OR UDEF is the only returned group**/
 			if(!isUNDEFGroup || undef_is_only_group){
 				for (final ReadEndsForMarkDuplicatesWithMolecularCode end : list) {
 					if (end.score > maxScore || best == null) {
 						maxScore = end.score;
 						best = end;
 					}
+					//save the number of reads for this chunk in a map keyed by the read index
+					saveDupsCountForIndex(end.read1IndexInFile, chunkSize);
+					saveDupsCountForIndex(end.read2IndexInFile, chunkSize);
 				}
+				
+			}else{
+				/*
+				 *  this is the UNDEF group and this is **not** the only group 
+				 *  This means that all reads in this undef group will be flagged duplicates:
+				 *  ==> how should we count these duplicated w.r.t dupesChunkCounts?
+				 */
+				count_from_undef_group_to_add = chunkSize;
 			}
 			
 			//flag all reads duplicates but best
 			for (final ReadEndsForMarkDuplicatesWithMolecularCode end : list) {
+				//if(logit) log.info("flagging read pair indices 1/2: "+end.read1IndexInFile+"/"+end.read2IndexInFile);
+				
 				if (best == null || end != best) {
 					addIndexAsDuplicate(end.read1IndexInFile);
 					addIndexAsDuplicate(end.read2IndexInFile);
@@ -843,6 +910,27 @@ public class MarkDuplicatesWithMolecularCode extends AbstractMarkDuplicatesComma
 		}
 	}
 
+	private void saveDupsCountForIndex(long index, int dupsCnt) {
+		dupesChunkCounts.put(index, dupsCnt);
+		log.debug("saved dupes count ("+dupsCnt+") for read index "+index);
+	}
+
+	/**
+	 * Makes sure the DUPES_GROUP_NAME_UNDEF is first in list if present and sort the other groups
+	 * 
+	 * @param groupnames group names
+	 * @return
+	 */
+	private List<String> sortGroupNames(Set<String> groupnames) {
+		List<String> sorted = new ArrayList<String>(groupnames);
+		Collections.sort(sorted);
+		if(sorted.remove(DUPES_GROUP_NAME_UNDEF)){
+			//re-add it in front
+			sorted.add(0, DUPES_GROUP_NAME_UNDEF);
+		}
+		return sorted;
+	}
+
 	/**
 	 * Takes a list of ReadEndsForMarkDuplicatesWithMolecularCode objects and removes from it all objects that should
 	 * not be marked as duplicates.  This will set the duplicate index for only list items are fragments.
@@ -852,8 +940,19 @@ public class MarkDuplicatesWithMolecularCode extends AbstractMarkDuplicatesComma
 	 */
 	protected void markDuplicateFragments(final List<ReadEndsForMarkDuplicatesWithMolecularCode> duplicates, final boolean containsPairs) {
 		if (containsPairs) {
+			//how many unpaired frags will we declare dupes in this chunk ? 
+			// we will consider them all of the same chunk and declare a negative number to make it clear to users that these are special 
+			int c = 0; 
 			for (final ReadEndsForMarkDuplicatesWithMolecularCode end : duplicates) {
-				if (!end.isPaired()) addIndexAsDuplicate(end.read1IndexInFile);
+				if (!end.isPaired()){
+					addIndexAsDuplicate(end.read1IndexInFile);
+					c--;
+				}
+			}
+			//update the 
+			for (final ReadEndsForMarkDuplicatesWithMolecularCode end : duplicates) {
+				if (!end.isPaired())
+					saveDupsCountForIndex(end.read1IndexInFile, c);
 			}
 		} else {
 			
@@ -879,14 +978,53 @@ public class MarkDuplicatesWithMolecularCode extends AbstractMarkDuplicatesComma
 				undef_is_only_group = true;
 			}
 			
+			//dupe count from undef group to add up to these other groups
+			int count_from_undef_group_to_add = 0;
+			int count_from_undef_group_added = 0;
+			/*
+			 * we iterate over the groups with UNDEF always as the FIRST, this is important for the logics !!! 
+			 */
+			List<String> orderedGroupNames = sortGroupNames(groupsOfDupes.keySet());
+			int gcnt = 0;
 			
-			for(Entry<String, List<ReadEndsForMarkDuplicatesWithMolecularCode>> e: groupsOfDupes.entrySet()){
-				List<ReadEndsForMarkDuplicatesWithMolecularCode> list = e.getValue();
-				boolean isUNDEFGroup = e.getKey().equals(DUPES_GROUP_NAME_UNDEF);
+			for(String group : orderedGroupNames){
+				List<ReadEndsForMarkDuplicatesWithMolecularCode> list = groupsOfDupes.get(group);
+				boolean isUNDEFGroup = group.equals(DUPES_GROUP_NAME_UNDEF);
 				
 				short maxScore = 0;
 				ReadEndsForMarkDuplicatesWithMolecularCode best = null;
-
+				int chunkSize = list.size();
+				
+				log.debug(group+" with "+chunkSize);
+				//the chunk size needs to be corrected if we had reads in isUNDEFGroup ie if count_from_undef_group_to_add is not zero
+				if(!isUNDEFGroup && count_from_undef_group_to_add>0){
+					gcnt++; //increment the real chunk number
+					int added_to_this_group=0;
+					// number of reads to add per chunk: do an int division ; each chunk get this additional count
+					int add_to_this_group = count_from_undef_group_to_add / (orderedGroupNames.size()-1); //do not count the UNDEF group
+					chunkSize += add_to_this_group;
+					added_to_this_group += add_to_this_group;
+					//might remain some count ie 
+					int remain = count_from_undef_group_to_add % (orderedGroupNames.size()-1);
+					//each group then get an extra +1 until we run out of remainders
+					if(gcnt <= remain ){
+						chunkSize ++;
+						added_to_this_group++;
+					}
+					
+					//also consider the next 'added_to_this_group' reads from the undef group as part of this chunk and same them in dupesChunkCounts
+					List<ReadEndsForMarkDuplicatesWithMolecularCode> _undef_reads = groupsOfDupes.get(DUPES_GROUP_NAME_UNDEF);
+					for(int i = count_from_undef_group_added; i< (count_from_undef_group_added+added_to_this_group); i++){
+						saveDupsCountForIndex(_undef_reads.get(i).read1IndexInFile, chunkSize);
+					}
+					//update count_from_undef_group_added
+					count_from_undef_group_added += added_to_this_group;
+					
+					log.debug(group+" with size adjusted to "+chunkSize);
+				}
+				
+				
+				
 				/** All read ends should have orientation FF, FR, RF, or RR **/
 				/** we only look up the best one if this is not the UNDEF group OR UDEF is the only returned group**/
 				if(!isUNDEFGroup || undef_is_only_group){
@@ -895,8 +1033,17 @@ public class MarkDuplicatesWithMolecularCode extends AbstractMarkDuplicatesComma
 							maxScore = end.score;
 							best = end;
 						}
+						//save the number of reads for this chunk in a map keyed by the read index
+						saveDupsCountForIndex(end.read1IndexInFile, chunkSize);
 					}
-
+					
+				}else{
+					/*
+					 *  this is the UNDEF group and this is **not** the only group 
+					 *  This means that all reads in this undef group will be flagged duplicates:
+					 *  ==> how should we count these duplicated w.r.t dupesChunkCounts?
+					 */
+					count_from_undef_group_to_add = chunkSize;
 				}
 				
 				//flag all reads duplicates but best
@@ -913,7 +1060,7 @@ public class MarkDuplicatesWithMolecularCode extends AbstractMarkDuplicatesComma
 	/**
 	 * Split a list of duplicates computed based on their position into sub-lists based on molecular barcodes proximity
 	 * @param duplicates
-	 * @return the lists of duplicates with their key molecular code. Note the special {@link MarkDuplicatesWithMolecularCode#DUPES_GROUP_NAME_UNDEF} 
+	 * @return the lists of duplicates with their key molecular code. Note the special {@link MarkDuplicatesWithMolecularCode2#DUPES_GROUP_NAME_UNDEF} 
 	 * key used for reads with too degenerate molecualr code (too many Ns)  
 	 * @author girardot@embl.de
 	 */
@@ -937,7 +1084,7 @@ public class MarkDuplicatesWithMolecularCode extends AbstractMarkDuplicatesComma
 	 * Each created group can then be regarded as a real list of duplicates. 
 	 * This method tries its best to discover the real initial barcodes. 
 	 * If you know the exact list of expected molecualr codes, you should instead use 
-	 * {@link MarkDuplicatesWithMolecularCode#splitDuplicatesByMolecularCodeGroupWithPredefinedCodeList(List, int, int, int, Set)}
+	 * {@link MarkDuplicatesWithMolecularCode2#splitDuplicatesByMolecularCodeGroupWithPredefinedCodeList(List, int, int, int, Set)}
 	 *   
 	 * 
 	 * @param duplicates the list of {@link MolecularCodedReadEnds} to split into subgroups based on molecular codes
@@ -1046,7 +1193,7 @@ public class MarkDuplicatesWithMolecularCode extends AbstractMarkDuplicatesComma
 	 * Inspects a list of {@link MolecularCodedReadEnds} and distribute them into subgroups based on the proximity of their 
 	 * molecular codes to a predefined list of expected codes.
 	 * If you don't know the exact list of expected molecular codes, you should instead use 
-	 * {@link MarkDuplicatesWithMolecularCode#splitDuplicatesByMolecularCodeGroupWithoutPredefinedCodeList(List, int, int)}
+	 * {@link MarkDuplicatesWithMolecularCode2#splitDuplicatesByMolecularCodeGroupWithoutPredefinedCodeList(List, int, int)}
 	 *   
 	 * 
 	 * @param duplicates the list of {@link MolecularCodedReadEnds} to split into subgroups based on molecular codes

@@ -4,3 +4,5 @@ bin
 target/
 .DS_Store
 ._*
+embl.properties
+test.properties

@@ -41,10 +41,17 @@ public class SampleMatch {
 		 */
 		protected Map<Integer, BarcodeMatch> barcodeMatches;
 		
+		protected String diagnosticNote = "";
 		
 		public SampleMatch(String sample, Map<Integer, BarcodeMatch> barcodeMatches){
 			this.sample= sample;
 			this.barcodeMatches = barcodeMatches;
+		}
+
+		public SampleMatch(String sample, Map<Integer, BarcodeMatch> barcodeMatches, String diagnosticNote){
+			this.sample= sample;
+			this.barcodeMatches = barcodeMatches;
+			this.diagnosticNote = diagnosticNote;
 		}
 
 
@@ -61,6 +68,22 @@ public class SampleMatch {
 		 */
 		public Map<Integer, BarcodeMatch> getBarcodeMatches() {
 			return barcodeMatches;
+		}
+
+
+		/**
+		 * @return the diagnosticNote
+		 */
+		public String getDiagnosticNote() {
+			return diagnosticNote;
+		}
+
+
+		/**
+		 * @param diagnosticNote the diagnosticNote to set
+		 */
+		public void setDiagnosticNote(String diagnosticNote) {
+			this.diagnosticNote = diagnosticNote;
 		}
 
 

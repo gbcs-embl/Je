@@ -34,6 +34,7 @@ import org.embl.gbcs.je.jedropseq.Jedropseq;
 import org.embl.gbcs.je.jeduplicates.MarkDuplicatesWithMolecularCode;
 import org.embl.gbcs.je.jemultiplexer.Jemultiplexer;
 import org.embl.gbcs.je.jemultiplexer.JemultiplexerIllumina;
+import org.embl.gbcs.je.retag.TagFromReadName;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -50,6 +51,7 @@ public class Je  {
 	private static Logger log = LoggerFactory.getLogger(Je.class);
 
 	
+	public static final String COMMAND_RETAG = "retag"; 
 	public static final String COMMAND_DEMULTIPLEX = "debarcode"; 
 	public static final String COMMAND_DROPSEQ = "dropseq"; 
 	public static final String COMMAND_CLIP = "clip"; 
@@ -64,8 +66,9 @@ public class Je  {
 		ALLOWED_COMMANDS.add(COMMAND_DUPES);
 		ALLOWED_COMMANDS.add(COMMAND_MULTIPLEX);
 		ALLOWED_COMMANDS.add(COMMAND_MULTIPLEX_ILLUMINA);
-		ALLOWED_COMMANDS.add(COMMAND_DROPSEQ);
+		//ALLOWED_COMMANDS.add(COMMAND_DROPSEQ);
 		ALLOWED_COMMANDS.add(COMMAND_DEMULTIPLEX);
+		ALLOWED_COMMANDS.add(COMMAND_RETAG);
 		
 	}
 	
@@ -125,6 +128,9 @@ public class Je  {
 			else if(option.equalsIgnoreCase(COMMAND_DROPSEQ)){
 				new Jedropseq().instanceMainWithExit(argv);
 			}
+			else if(option.equalsIgnoreCase(COMMAND_RETAG)){
+				new TagFromReadName().instanceMainWithExit(argv);
+			}
 			else{
 				System.err.println(
 						"FATAL : We just reached a supposedly unreachable part of the code. Please report this bug to Je developpers indicating the options you used i.e. : \n "+
@@ -146,7 +152,8 @@ public class Je  {
 				+"\t "+COMMAND_MULTIPLEX+" \t\t demultiplexes fastq file(s) with Je 1.x implementation, with optional handling of molecular barcodes for further use in 'dupes' module\n"
 				+"\t "+COMMAND_MULTIPLEX_ILLUMINA+" \t demultiplexes fastq file(s) using Illumina Index files with Je 1.x implementation, with optional handling of molecular barcodes for further use in 'dupes' module\n"
 				+"\t "+COMMAND_DUPES+"     \t\t removes read duplicates based on molecular barcodes found in read name headers (as produced by clip or plex)\n"
-				+"\t "+COMMAND_DROPSEQ+"    \t\t clips cell barcode and UMI from read 1 and adds them to header of read 2. This command is for processing drop-seq results.\n"
+				//+"\t "+COMMAND_DROPSEQ+"    \t\t clips cell barcode and UMI from read 1 and adds them to header of read 2. This command is for processing drop-seq results.\n"
+				+"\t "+COMMAND_RETAG+"    \t\t extracts barcode and UMI sequence(s) embedded in read names and tag reads with proper BAM tag.\n"
 				+"\n"
 				+"Version : "+getVersion()
 				;

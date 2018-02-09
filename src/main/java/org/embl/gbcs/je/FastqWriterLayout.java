@@ -49,11 +49,21 @@ import htsjdk.samtools.fastq.FastqRecord;
  *   2. A second one describing how to write the read name (header) e.g. '<BARCODE1><UMI1><UMI2>' to add the barcode and two extracted UMIs 
  *      in the final read name, in addition to the original read name (ie header up to the space). Here each written slot is separated with ':' by default
  *      
+ *     
+ * Note that in case of barcode, one might want to write the barcode or the read sequence corresponding to the looked up sample barcode.  
  * 
- * Note that a short layout format can also be used like 'B1', 'U2', 'S1'' instead of '<BARCODE1>' , '<UMI2>' and '<SAMPLE1>' ; respectively. 
+ * The possible keys are :<br/>
+ * <ul>
+ * <li>SAMPLEn  : refers to the SAMPLE slot with idx 'n' defined in the {@link ReadLayout} objects</li>
+ * <li>UMIn     : refers to the UMI slot with idx 'n' defined in the {@link ReadLayout} objects</li>
+ * <li>BARCODEn : refers to the sample barcode resolved from the read sequence found in the of the BARCODE slot with idx 'n' defined in the {@link ReadLayout} objects</li>
+ * <li>READBARn : refers to the read sequence found in the BARCODE slot with idx 'n' defined in the {@link ReadLayout} objects</li>
+ * </ul> 
+ * 
+ * Note that a short layout format can also be used like 'B1', 'U2', 'S1' or 'R1' instead of '<BARCODE1>' , '<UMI2>' , '<SAMPLE1>' and <READBAR>; respectively. 
  * For example, 'B1U1U2' is the same as '<BARCODE1><UMI1><UMI2>'. 
  * 
- *  Technically speaking, the short layout format is the only one used.  
+ * Technically speaking, the short layout format is the only one used.  
  * 
  * @author girardot
  *
@@ -62,8 +72,8 @@ public class FastqWriterLayout {
 
 	private static Logger log = LoggerFactory.getLogger(FastqWriterLayout.class);
 	
-	private static final String LONG_LAYOUT_REGEX = "^(<?(BARCODE|UMI|SAMPLE)\\d+>?)+$";
-	private static final String SHORT_LAYOUT_REGEX = "^([BUS]\\d+)+$";
+	private static final String LONG_LAYOUT_REGEX = "^(<?(BARCODE|UMI|SAMPLE|READBAR)\\d+>?)+$";
+	private static final String SHORT_LAYOUT_REGEX = "^([BUSR]\\d+)+$";
 	
 	
 	
@@ -143,12 +153,32 @@ public class FastqWriterLayout {
 			shortLayout = shortLayout.replaceAll("ARCODE", "");
 			shortLayout = shortLayout.replaceAll("MI", "");
 			shortLayout = shortLayout.replaceAll("AMPLE", "");
+			shortLayout = shortLayout.replaceAll("EADBAR", "");
 		}
 		log.debug("short layout : "+shortLayout);
 		return shortLayout;
 		
 	}
 
+	
+	/**
+	 * Assemble the {@link FastqRecord} that should be written in the output file according to the layout(s).
+	 * This method also use the read sequence to write BARCODE in read name
+	 * @param reads the {@link FastqRecord} from the input fastq files in the order matching the {@link ReadLayout} given at construction 
+	 * 
+	 * @return
+	 */
+	public FastqRecord assembleRecord( FastqRecord[] reads ){
+		
+		FastqRecord rec = sequenceConsumer.assembleNewRead(reads);
+		String name = rec.getReadName(); 
+		if(readNameConsumer != null) 
+			name = readNameConsumer.assembleNewReadName(reads);
+		
+		FastqRecord ass = new FastqRecord(name, rec.getReadString(), rec.getBaseQualityHeader(), rec.getBaseQualityString());
+		log.debug("Assembled read for output using layout [NameLayout="+this.readNameLayout+" ; SequenceLayout="+this.readSequenceLayout+"] => \n"+ass.toFastQString());
+		return ass;
+	}
 
 	/**
 	 * Assemble the {@link FastqRecord} that should be written in the output file according to the layout(s)

@@ -27,6 +27,7 @@ import htsjdk.samtools.SAMUtils;
 import htsjdk.samtools.fastq.FastqRecord;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.regex.Matcher;
@@ -122,6 +123,24 @@ public class ReadLayoutConsumer {
 	}
 
 
+	
+	/**
+	 * Assemble a read name by concatenating the output layout to the original read name.  
+	 * Concatenation is made by inserting a readNameDelimitor between each added slot 
+	 * In this method, the read sequence is always used in BARCODE slots
+	 * 
+	 * @param reads the reads in order matching that of the {@link ReadLayout} array used at construction
+	 * 
+	 * @return
+	 */
+	public String assembleNewReadName(FastqRecord [] reads){
+
+		boolean[] useReadSequenceForBarcodes = new boolean[reads.length];
+		Arrays.fill(useReadSequenceForBarcodes, true);
+		return assembleNewReadName(reads, useReadSequenceForBarcodes, null);
+	}
+	
+	
 	/**
 	 * Assemble a read name by concatenating the output layout to the original read name.  
 	 * Concatenation is made by inserting a readNameDelimitor between each added slot 
@@ -150,7 +169,7 @@ public class ReadLayoutConsumer {
 			 */
 			String subseq = null;
 			int bestQual = 0;
-			if(!useReadSequenceForBarcodes[slotIdx-1] && slotTypeCode == BYTECODE_BARCODE){
+			if(slotTypeCode == BYTECODE_BARCODE && !useReadSequenceForBarcodes[slotIdx-1] ){
 				// we init the subseq with the matched barcode directly
 				subseq = m.getBarcodeMatches().get(slotIdx).barcode;
 			}else{
@@ -208,7 +227,7 @@ public class ReadLayoutConsumer {
 			byte slotTypeCode = slotCodes.get(i);
 			int slotIdx = this.slotIdx.get(i); 
 
-			log.debug("gettign info for slot code "+slotTypeCode+" with idx "+slotIdx);
+			log.debug("getting info for slot code "+slotTypeCode+" with idx "+slotIdx);
 			/*
 			 * when a slot can be obtained from different reads (e.g. redundant barcode), keep the one with best overall quality
 			 */

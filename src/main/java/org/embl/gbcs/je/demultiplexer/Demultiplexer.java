@@ -36,6 +36,8 @@ import java.io.FileNotFoundException;
 import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -45,6 +47,7 @@ import java.util.Map.Entry;
 import java.util.Set;
 import java.util.TreeSet;
 
+import org.embl.cg.utilitytools.utils.CollectionUtils;
 import org.embl.gbcs.je.BarcodeMatch;
 import org.embl.gbcs.je.FastqWriterLayout;
 import org.embl.gbcs.je.JeUtils;
@@ -244,10 +247,11 @@ public class Demultiplexer {
 	 * @param min_base_qualities one value for each defined BARCODE slot (in the read layouts)
 	 * @param useReadSequenceForBarcodes dictates what to write in the read header layouts of the {@link FastqWriterLayout}.
 	 * When false, the matched barcode is used. When true, the exact read sequence extracted from the barcode slot is written  
+	 * @param strict how to handle barcode with redundant slots
 	 * @param asyncWrite whether we should use async FASTQ writers
 	 * @param diagnosticFile if not null Je writes info on sample matching process 
 	 */
-	public void run(int[] max_mismatches, int[] min_mismatch_deltas, int[] min_base_qualities, boolean[] useReadSequenceForBarcodes, boolean asyncWrite, File diagnosticFile){
+	public void run(int[] max_mismatches, int[] min_mismatch_deltas, int[] min_base_qualities, boolean[] useReadSequenceForBarcodes, boolean strict, boolean asyncWrite, File diagnosticFile){
 		
 		/*
 		 * Initialize all barcode maps 
@@ -255,16 +259,21 @@ public class Demultiplexer {
 		
 		// a map to get the list of all possible barcodes for a given slots
 		Map<Integer, Set<String>> barcodeSetBySlotId = new LinkedHashMap<Integer, Set<String>>();
+		//list of barcode length ordered by slot id
+		List<Integer> orderedBarcodeLengths = new ArrayList<Integer>();
 		for(Entry<String, List<Set<String>>> e : sample2BarcodeSets.entrySet()){
 			for (int i = 0; i < e.getValue().size(); i++) {
 				//set of redundant barcodes for this sample and for the BARCODE slot i
 				Set<String> _bcs = e.getValue().get(i); 
 				int bcIdx = i+1;
-				if(!barcodeSetBySlotId.containsKey(bcIdx))
+				if(!barcodeSetBySlotId.containsKey(bcIdx)){
 					barcodeSetBySlotId.put(bcIdx, new TreeSet<String>());
+					orderedBarcodeLengths.add(_bcs.iterator().next().length());
+				}
 				barcodeSetBySlotId.get(bcIdx).addAll(_bcs);
 			}
 		}
+		
 		
 		// the same map as above but with byte[][] arrays
 		Map<Integer, byte[][]> barcodeBytesBySlotId = new HashMap<Integer, byte[][]>();
@@ -373,14 +382,14 @@ public class Demultiplexer {
 			
 			diagnosticFileWriter.print("ReadCount");
 			diagnosticFileWriter.print("Name");
-			for (int i = 0; i <= barcodeBlockUniqueIdNumber; i++) {
+			for (int i = 1; i <= barcodeBlockUniqueIdNumber; i++) {
 				diagnosticFileWriter.print("\t"+"BARCODE"+i+"_readseq");
 				diagnosticFileWriter.print("\t"+"BARCODE"+i+"_bestbarcode");
 				diagnosticFileWriter.print("\t"+"BARCODE"+i+"_MM_Best");
 				diagnosticFileWriter.print("\t"+"BARCODE"+i+"_MM_Second");
 				diagnosticFileWriter.print("\t"+"BARCODE"+i+"_passes_cutoffs");
 			}
-			diagnosticFileWriter.println("\t"+"assigned_sample");
+			diagnosticFileWriter.println("\t"+"assigned_sample"+"\t"+"notes");
 		}
 		
 		
@@ -397,7 +406,11 @@ public class Demultiplexer {
 			Map<Integer, List<FastqRecord>> barcodeSubsequenceBySlotIdx = FastqWriterLayout.extractBarcodeSlots(reads, readLayouts);
 			
 			//identify the sample matching these subsequence
-			SampleMatch assignedSample = assignToSample(barcodeSubsequenceBySlotIdx, barcodeSetBySlotId, barcodeBytesBySlotId, barcodehash2sample, min_base_qualities, max_mismatches, min_mismatch_deltas);
+			SampleMatch assignedSample = assignToSample(
+					barcodeSubsequenceBySlotIdx, 
+					barcodeSetBySlotId, orderedBarcodeLengths, 
+					barcodeBytesBySlotId, barcodehash2sample, 
+					min_base_qualities, max_mismatches, min_mismatch_deltas, strict);
 			
 			writeDiagnostics(reads, assignedSample, diagnosticFileWriter, cnt);
 			
@@ -469,7 +482,7 @@ public class Demultiplexer {
 	/**
 	 * @param reads the original reads
 	 * @param assignedSample the sample match report
-	 * @param diagnosticFileWriter the writer or null if no diagnositics has to be written 
+	 * @param diagnosticFileWriter the writer or null if no diagnostics has to be written 
 	 * @param readCounter the current read iteration (starts at one) 
 	 */
 	private void writeDiagnostics(FastqRecord[] reads,
@@ -493,7 +506,8 @@ public class Demultiplexer {
 			diagnosticFileWriter.print("\t"+bm.mismatchesToSecondBest);
 			diagnosticFileWriter.print("\t"+ (bm.matched? "yes": "no") );
 		}
-		diagnosticFileWriter.println("\t"+(assignedSample.getSample().equals(Demultiplexer.UNASSIGNED) ? "unassigned" : assignedSample.getSample()));
+		diagnosticFileWriter.print("\t"+(assignedSample.getSample().equals(Demultiplexer.UNASSIGNED) ? "unassigned" : assignedSample.getSample()));
+		diagnosticFileWriter.println("\t"+assignedSample.getDiagnosticNote());
 		
 		if(readCounter % 100 == 0)
 			diagnosticFileWriter.flush();
@@ -505,28 +519,31 @@ public class Demultiplexer {
 
 
 
-
+		
 	/**
 	 * @param barcodeSubsequenceBySlotIdx associates each BARCODE slot (keyed by its ID) with the list of (redundant) 
 	 * barcodes sequences for this BARCODE slot. This is a list as a given BARCODE slot can appear more than once across
 	 *  the read layouts i.e. in the case of redundant barcode
 	 * @param barcodeSetBySlotIdx set of possible barcodes for a given BARCODE slot id 
+	 * @param orderedBarcodeLengths ordered list of barcode length (following the concatenation ordered used for producing the hashcodes)
 	 * @param barcodeBytesBySlotIdx set of possible barcodes for a given BARCODE slot id in byte format
 	 * @param barcodehash2sample every single possible combination of barcode from all slots (one per slot in each combination) hash
 	 * @param min_base_qualities 
 	 * @param max_mismatches
 	 * @param min_mismatch_deltas
+	 * @param strict how to handle barcode with redundant sequence slots
 	 * @return a {@link SampleMatch} in which the sample name is set to Demultiplexer.UNASSIGNED if barcode lookup failed
 	 */
 	private SampleMatch assignToSample(
 			Map<Integer, List<FastqRecord>> barcodeSubsequenceBySlotIdx,
 			Map<Integer, Set<String>> barcodeSetBySlotIdx,
+			List<Integer> orderedBarcodeLengths,
 			Map<Integer, byte[][]> barcodeBytesBySlotIdx,
 			Map<Integer, String> barcodehash2sample,
 			int [] min_base_qualities, 
 			int [] max_mismatches, 
-			int [] min_mismatch_deltas
-			
+			int [] min_mismatch_deltas,
+			boolean strict
 			) {
 		
 		/*
@@ -563,41 +580,187 @@ public class Demultiplexer {
 		}
 		
 		//identify the corresponding sample, if any 
-		String concatenated = "";
-		Map<Integer, BarcodeMatch> barcodeMatches = new HashMap<Integer, BarcodeMatch>();
-		boolean hasSample = true;
+		//set of all concatenated codes and the sum of their mismatch
+		Map<String, Integer> concatenatedCodes = new HashMap<String, Integer>();
+		concatenatedCodes.put("", 0); //init with empty string
+		Map<Integer, Map<String, BarcodeMatch>> barcodeMatches = new HashMap<Integer, Map<String, BarcodeMatch>>();
+		boolean hasNoSample = false;
 		for(Entry<Integer, List<BarcodeMatch>> e : barcodeMatchBySlotIdx.entrySet()){
 			/*
-			 * for those slots with more than one BARCODE MATCH, we only need to only consider one of the matched BarcodeMatch
+			 * for those slots with more than one BARCODE MATCH, we need to consider all possible concatenations
 			 */
 			int slotIdx = e.getKey();
-			BarcodeMatch bm = keepOnlyBestBarcodeMatch(e.getValue());
-			barcodeMatches.put(slotIdx, bm);
-			concatenated += bm.barcode;
-			if(!bm.matched)
-				hasSample = false; //we can t look up a sample
+			Map<String, BarcodeMatch> allValidAndNotRedundantBarcodeMatches = keepOnlyBestBarcodeMatches(e.getValue());  // keyed by the barcode sequence
+			if(allValidAndNotRedundantBarcodeMatches.size() == 0){
+				hasNoSample = true; //we can t look up a sample
+				break;
+			}
+			//remember for later
+			barcodeMatches.put(slotIdx, allValidAndNotRedundantBarcodeMatches);
+			//augment the concatenated codes
+			Map<String, Integer>  augmentedCodes = new HashMap<String, Integer>();
+			for (Entry<String, Integer> _concat : concatenatedCodes.entrySet()) {
+				for (Entry<String, BarcodeMatch> toAdd : allValidAndNotRedundantBarcodeMatches.entrySet()) {
+					augmentedCodes.put(
+							_concat.getKey() + toAdd.getKey() , 
+							_concat.getValue() + toAdd.getValue().mismatches
+							); 
+				}
+			}
+			concatenatedCodes = augmentedCodes;
+			
 		}
 		
-		log.debug("  concatenated barcode sequence for sample hashing "+concatenated);
-		String sampleName = (hasSample ? barcodehash2sample.get(concatenated.hashCode()) : Demultiplexer.UNASSIGNED);
-		log.debug("  sample is ===> "+sampleName);
+		//do we have concatenated string(s) representing whole the bc slots?
+		String sampleName = "";
+		//a note to add to the diagnostic
+		String diagNote = "";
+		if( false == hasNoSample){
+			//do these string resolved to the same sample ?
+			Map<String, Integer> sampleNames = new HashMap<String, Integer>();
+			Map<String, String> sampleName2concatenatedCode = new HashMap<String, String>();
+			for (Entry<String, Integer> code : concatenatedCodes.entrySet()) {
+				String sname = barcodehash2sample.get(code.getKey().hashCode());
+				sampleNames.put( sname , code.getValue());
+				sampleName2concatenatedCode.put(sname, code.getKey());
+			}
+			
+			//if there is a unique sample assignment
+			if(sampleNames.size() == 1){
+				Entry<String, Integer> en = sampleNames.entrySet().iterator().next();
+				sampleName = en.getKey();
+				// pick a unique match per slot
+				Map<Integer, BarcodeMatch> uniqueBCMatches = new HashMap<Integer, BarcodeMatch>();
+				for (Entry<Integer, Map<String, BarcodeMatch>> e : barcodeMatches.entrySet()) {
+					uniqueBCMatches.put(e.getKey(), e.getValue().values().iterator().next());
+				}
+				return new SampleMatch(sampleName, uniqueBCMatches);
+			} 
+			// OR if NOT strict
+			else if (!strict) {
+				// for each possible sample, compute the overall sum of mismatches
+				Integer lowestMM = null;
+				Map<Integer, Set<String>> mm2samples = new HashMap<Integer, Set<String>>();
+				for (Entry<String, Integer> e : sampleNames.entrySet()){
+					String _sample = e.getKey();
+					int mm = e.getValue();
+					if(!mm2samples.containsKey(mm)){
+						mm2samples.put(mm, new TreeSet<String>());
+					}
+					mm2samples.get(mm).add(_sample);
+					if(lowestMM == null || mm< lowestMM) lowestMM = mm;
+				}
+				
+				List<Integer> orderedMMs = new ArrayList<Integer>(mm2samples.keySet());
+				Collections.sort(orderedMMs);
+				
+				for (Integer _mm : orderedMMs) {
+					for (String _sampl : mm2samples.get(_mm)) {
+						diagNote += (diagNote.isEmpty() ? "" : " ; ");
+						diagNote += _sampl +"("+_mm + " MMs)"; 
+					}
+				}
+				
+				// is there a better assignment ie a single sample with lowest overall MM number?
+				if(mm2samples.get(lowestMM).size() == 1){
+					//we have a better sample
+					sampleName = mm2samples.get(lowestMM).iterator().next();
+					//extract the barcodes of the concatenated barcode and indentify back the BarcodeMatch
+					Map<Integer, BarcodeMatch> uniqueBCMatches = new HashMap<Integer, BarcodeMatch>();
+					int from = 0;
+					int _slotIdx = 0;
+					String concatenatedBC = sampleName2concatenatedCode.get(sampleName);
+					for(int bcLen : orderedBarcodeLengths){
+						_slotIdx++;
+						int end = from + bcLen;
+						String _bc = concatenatedBC.substring(from, end);
+						BarcodeMatch bcM = barcodeMatches.get(_slotIdx).get(_bc);
+						from = end;
+						uniqueBCMatches.put(_slotIdx, bcM);
+					}
+					log.debug( "    selecting "+sampleName+" as it has the lowest overall MM count : "+lowestMM);
+					diagNote = "Selected "+sampleName+" due to lowest overall MM from : " + diagNote;
+					log.debug( "    "+diagNote);
+					return new SampleMatch(sampleName, uniqueBCMatches, diagNote);
+				}else{
+					diagNote = "Cannot select from : " + diagNote;
+				}
+			}else{
+				for (Entry<String, Integer> e : sampleNames.entrySet()) {
+					diagNote += (diagNote.isEmpty() ? "" : " ; ");
+					diagNote += e.getKey() +"("+e.getValue() + " MMs)"; 
+				}
+				diagNote = "Cannot select from : " + diagNote;
+			}
+			log.debug("    barcodes'matches resolve to multiple samples :" + Arrays.toString(sampleNames.keySet().toArray()));
+		}
 		
-		return new SampleMatch(sampleName, barcodeMatches);
+		//build a fake match set for diag file
+		Map<Integer, BarcodeMatch> uniqueBCMatches = new HashMap<Integer, BarcodeMatch>();
+		for(Entry<Integer, List<BarcodeMatch>> e : barcodeMatchBySlotIdx.entrySet()){
+			uniqueBCMatches.put(e.getKey(), buildFakeBarcodeMatchForNoSampleLookupSituation(e.getValue()));
+		}
+		if(diagNote.isEmpty())
+			diagNote = "indicated mismatches : -1 for no match else lowest mismatch";
+		return new SampleMatch(Demultiplexer.UNASSIGNED, uniqueBCMatches, diagNote);
 	}
 
 	
 	
+	private BarcodeMatch buildFakeBarcodeMatchForNoSampleLookupSituation(
+			Collection<BarcodeMatch> values) {
+		if(values.size() == 1)
+			return values.iterator().next();
+		
+		BarcodeMatch fake = new BarcodeMatch();
+		fake.readSequence = "";
+		fake.barcode = "";
+		fake.matched = false;
+		fake.mismatches = -1;
+		fake.mismatchesToSecondBest = -1;
+		for (BarcodeMatch bm : values) {
+			fake.readSequence += (fake.readSequence.isEmpty() ? "":"," ) + bm.readSequence;
+			
+			if(bm.matched){
+				fake.matched = true;
+				fake.barcode += (fake.barcode.isEmpty() ? "":"," ) + (bm.barcode.isEmpty() ? "NOMATCH":bm.barcode ) ;
+				if(fake.mismatches < 0 || fake.mismatches > bm.mismatches ) {
+					fake.mismatches = bm.mismatches;
+					fake.mismatchesToSecondBest = bm.mismatchesToSecondBest;
+				}
+			}
+		}
+		return fake;
+	}
+
+
+
+
+
+
+
+
 	/**
+	 * removes the unmatched BarcodeMatch and only keep the best match when more than one BarcodeMatch
+	 * are found for the same barcode
 	 * @param matches
 	 * @return the best 
 	 */
-	private BarcodeMatch keepOnlyBestBarcodeMatch(List<BarcodeMatch> matches) {
-		BarcodeMatch best = null;
+	private Map<String, BarcodeMatch> keepOnlyBestBarcodeMatches(List<BarcodeMatch> matches) {
+		
+		Map<String, BarcodeMatch> allValidAndNotRedundantBarcodeMatches = new HashMap<String, BarcodeMatch>();
 		for (BarcodeMatch _bm : matches) {
-			if(best == null || _bm.mismatches < best.mismatches)
+			if(!_bm.matched)
+				continue;
+
+			BarcodeMatch best = allValidAndNotRedundantBarcodeMatches.get(_bm.barcode);
+			if(best == null || _bm.mismatches < best.mismatches){
 				best = _bm;
+				allValidAndNotRedundantBarcodeMatches.put(_bm.barcode, best);
+			}
 		}
-		return best;
+
+		return allValidAndNotRedundantBarcodeMatches;
 	}
 
 

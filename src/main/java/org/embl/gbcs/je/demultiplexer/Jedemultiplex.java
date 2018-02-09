@@ -30,6 +30,7 @@ import htsjdk.samtools.util.QualityEncodingDetector;
 
 import java.io.File;
 import java.io.FileNotFoundException;
+import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -87,7 +88,8 @@ public class Jedemultiplex extends CommandLineProgram {
 	protected static final String DEFAULT_METRICS_FILE_NAME = "jemultiplexer_out_stats.txt";
 	protected static final String DEFAULT_READ_NAME_SEPARATOR_CHAR = ":";
 	protected static final String DEFAULT_USE_ORIGINAL_BARCODE_SEQUENCE = "0";
-
+	protected static final boolean DEFAULT_STRICT = false;
+	
 	protected static final boolean DEFAULT_ADD_SEQUENCE_LAYOUT_IN_OUTPUT_FILENAME = false;
 
 	protected static final boolean DEFAULT_ADD_HEADER_LAYOUT_IN_OUTPUT_FILENAME = false;
@@ -304,6 +306,14 @@ public class Jedemultiplex extends CommandLineProgram {
 	// array  associated with MIN_BASE_QUALITY (after parsing) ; with a length that of the different barcode number found in the barcode file
 	int [] min_base_qualities;
 
+	@Option(shortName="S", optional = true,
+			printOrder=85,
+			doc="When reads have redundant BARCODE slots, this option tells how to handle situation when the read sequence do not resolve to the same sample.\n"
+					+" When true, the read pair is always 'unassigned'.\n"
+					+" When false, the read pair is assigned to the sample with the lowest overall mismatch sum\n"
+			)
+	public boolean STRICT = false;
+	
 	@Option(shortName = "O", optional = true,
 			printOrder=90,
 			doc="Output directory. By default, output files are written in running directory.\n")
@@ -951,8 +961,7 @@ public class Jedemultiplex extends CommandLineProgram {
 	private List<String> customEmbaseCommandLineValidation() {
 		//error messages to be accumulated
 		List<String> messages = new ArrayList<String>();
-		
-		
+			
 		OUTPUT_DIR = null;
 		GZIP_OUTPUTS=true;
 		CREATE_MD5_FILE = true;
@@ -964,12 +973,18 @@ public class Jedemultiplex extends CommandLineProgram {
 			String ufname= FileUtil.removeExtension( f.getName() ) + "_unassigned-reads"+".txt.gz" ;
 			unassignedFilePathes.add(ufname);
 		}
-		
-		
+				
 		/*
 		 * Get information from emBASE 
 		 */		
 		
+		//try load properties
+		try {
+			ApplicationConfiguration.init();
+		} catch (IOException e) {
+			log.error("Failed to read properties from property file.");
+			throw new RuntimeException(e);
+		}
 		//Determine the caller
 		String username = System.getProperty("user.name");
 		//check user is not trying to trick me with a -Duser.name=another user!
@@ -1099,7 +1114,7 @@ public class Jedemultiplex extends CommandLineProgram {
 							"Are you sure this lane has been successfully uploaded to emBASE ?\nIf so, please contact emBASE admins.";
 					log.debug(mess);
 					if(TEST_MODE_STOP_AFTER_PARSING){
-						log.debug("TEST MODE : Setting fake dir for "+lib.getName());
+						log.info("TEST MODE : Setting fake dir for "+lib.getName());
 						lib.setSampleDir ( EmBaseDatabaseFacade.getFakeSampleDir(lib.getName(), lib.getId()) );//does not exist, just fake for test
 					}
 					else{
@@ -1110,17 +1125,22 @@ public class Jedemultiplex extends CommandLineProgram {
 					//update lib.getSampleDir with fastq sub-dir
 					File fastqDir = new File(lib.getSampleDir(), "fastq");
 					if(!fastqDir.exists() || !fastqDir.canWrite()){
-						String mess = "The 'fastq' dir under the library dir  "+lib.getSampleDir().getAbsolutePath()
-								+" is either not existing OR not writable.\n";
-						if(!fastqDir.exists()){
-							mess+="The storage architecture is not ready. Are you sure this lane has been successfully uploaded to emBASE ?\nIf so, please contact emBASE admins.";
+						if(!TEST_MODE_STOP_AFTER_PARSING){
+							String mess = "The 'fastq' dir under the library dir  "+lib.getSampleDir().getAbsolutePath()
+									+" is either not existing OR not writable.\n";
+							if(!fastqDir.exists()){
+								mess+="The storage architecture is not ready. Are you sure this lane has been successfully uploaded to emBASE ?\nIf so, please contact emBASE admins.";
+							}
+							else{
+								mess+="The fastq storage file has been already locked to prevent further modifications.\n" +
+										"Please contact emBASE admins if you think this should not be the case.";
+							}
+							log.debug(mess);
+							messages.add(mess);
+						} else {
+							lib.setSampleDir( EmBaseDatabaseFacade.TMP_DIR );
+							log.info("TEST MODE : Setting fake sample dir to "+EmBaseDatabaseFacade.TMP_DIR);
 						}
-						else{
-							mess+="The fastq storage file has been already locked to prevent further modifications.\n" +
-									"Please contact emBASE admins if you think this should not be the case.";
-						}
-						log.debug(mess);
-						messages.add(mess);
 					}else{
 						lib.setSampleDir( fastqDir );
 					}
@@ -1142,7 +1162,11 @@ public class Jedemultiplex extends CommandLineProgram {
 		 */
 		PrintWriter pw = null;
 		try{
-			BARCODE_FILE = getBarcodeFileTmpLocation(FASTQ.get(0), username, runStatDir);
+			BARCODE_FILE = getBarcodeFileTmpLocation(
+					FASTQ.get(0), 
+					username, 
+					(TEST_MODE_STOP_AFTER_PARSING ? EmBaseDatabaseFacade.TMP_DIR : runStatDir)
+					);
 			if(BARCODE_FILE.exists()){
 				log.warn("The barcode file already exists and will be overwritten : "+BARCODE_FILE.getAbsolutePath());
 			}
@@ -1151,7 +1175,6 @@ public class Jedemultiplex extends CommandLineProgram {
 				
 				File fastq1 = getDemultiplexedFile(lib, 1 , GZIP_OUTPUTS);
 				File fastq2 = getDemultiplexedFile(lib, 2 , GZIP_OUTPUTS);
-				
 				
 				/*
 				 * check if file already exists , the test on the length is meant to avoid considering a 'fake' file as a real file
@@ -1215,7 +1238,7 @@ public class Jedemultiplex extends CommandLineProgram {
 					outLayouts, 
 					this.unassignedFiles, 
 					this.metricsFile, 
-					this.QUALITY_FORMAT, 
+					this.QUALITY_FORMAT,
 					this.GZIP_OUTPUTS, 
 					this.CREATE_MD5_FILE);
 			
@@ -1226,6 +1249,7 @@ public class Jedemultiplex extends CommandLineProgram {
 					min_mismatch_deltas, 
 					min_base_qualities,
 					useOriginalSequenceForBarcode,
+					STRICT,
 					WRITER_FACTORY_USE_ASYNC_IO, 
 					bcDiagFile);
 			

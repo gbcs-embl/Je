@@ -48,7 +48,7 @@ import org.slf4j.LoggerFactory;
  * <li> When no length ('x') is specified, all the sequence till the end is considered ; it only possible to use the 'x' 
  * shortcut in the last block of a layout</li>
  * <li> When a negative value is given in place of length (e.g. '<BLOCKCODEn:-2>'), all but the last x (2 in the 
- * '<BLOCKCODEn:-2>' example) bases ; a negative length value is only acceptedin the last block of a layout</li>
+ * '<BLOCKCODEn:-2>' example) bases ; a negative length value is only accepted in the last block of a layout</li>
  * </ul>
  * 
  * <br/>
@@ -152,6 +152,7 @@ public class ReadLayout {
 	}
 	
 	/**
+	 * change
 	 * Process the layout and initialize useful variables
 	 */
 	public void parseLayout(){
