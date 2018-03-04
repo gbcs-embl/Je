@@ -290,6 +290,8 @@ ${from_text_area}</configfile>
             falsevalue="false"
             checked="true"
         />
+        <param name="COLLECT_OUTPUTS" type="boolean" label="Group forward and reverse reads into seperate collection outputs?" />
+
         <section name="adv_options" title="Advanced Options" expanded="False">
             <param name="DIAG" type="boolean" label="Output barcode match reporting file (DIAG)"
                 truevalue="true" falsevalue="false" checked="false"
@@ -333,14 +335,24 @@ ${from_text_area}</configfile>
     <token name="@demultiplexer_common_outputs_cmd@">
         METRICS_FILE_NAME=$METRICS_FILE_NAME
     </token>
+    
     <xml name="demultiplexer_common_outputs">
         <data name="METRICS_FILE_NAME" format="tabular" label="Je-Demultiplex result">
+            <filter>COLLECT_OUTPUTS == False</filter>
             <!--<discover_datasets pattern="(?P&lt;name&gt;.*)\.txt" ext="fastqsanger"-->
             <discover_datasets pattern="(?P&lt;name&gt;.*)\.txt" directory="results" visible="true" ext="fastqsanger"/>
         </data>
         <data name="BARCODE_DIAG_FILE" format="tabular" label="Barcode statistics">
             <filter>(adv_options['DIAG'] == 'true')</filter>
         </data>
+        <collection name="COLLECTION_1" type="list" label="${tool.name} on ${on_string} : Reads_1" >
+            <filter>COLLECT_OUTPUTS</filter>
+            <discover_datasets pattern="(?P&lt;designation&gt;.+_1\..+)" ext="fastqsangar" directory="results" visible="false" />
+        </collection>
+        <collection name="COLLECTION_2" type="list" label="${tool.name} on ${on_string} : Reads_2" >
+            <filter>COLLECT_OUTPUTS</filter>
+            <discover_datasets pattern="(?P&lt;designation&gt;.+_2\..+)" ext="fastqsangar" directory="results" visible="false" />
+        </collection>
     </xml>
     <xml name="citations">
         <citations>

@@ -74,6 +74,8 @@
             <param name="BM" value="BOTH"/>
             <param name="BRED" value="false"/>
 
+            <param name="COLLECT_OUTPUTS" value="false" />
+
             <param name="barcode_list_type_con" value="text"/>
             <param name="barcode_text"
                 value="sample1 CACTGT:GTATAG&#10;sample2 ATTCCG:TCCGTC&#10;sample3 GCTACC:TGGTCA&#10;sample4 CGAAAC:CACTGT"/>
@@ -89,6 +91,34 @@
                 <discovered_dataset designation="sample1_CACTGTGTATAG_2" file="sample1_CACTGTGTATAG_2.txt"/>
                 <discovered_dataset designation="sample1_CACTGTGTATAG_1" file="sample1_CACTGTGTATAG_1.txt"/>
             </output>
+        </test>
+        <test>
+            <!-- Repeat  of previous but with collection outputs -->
+            <param name="type" value="paired"/>
+            <param name="input_1" value="file_1_sequence.txt" ftype="fastqsanger"/>
+            <param name="input_2" value="file_2_sequence.txt" ftype="fastqsanger"/>
+
+            <param name="BPOS" value="BOTH"/>
+            <param name="BM" value="BOTH"/>
+            <param name="BRED" value="false"/>
+
+            <param name="barcode_list_type_con" value="text"/>
+            <param name="barcode_text"
+                   value="sample1 CACTGT:GTATAG&#10;sample2 ATTCCG:TCCGTC&#10;sample3 GCTACC:TGGTCA&#10;sample4 CGAAAC:CACTGT"/>
+            <param name="COLLECT_OUTPUTS" value="true" />
+
+            <output_collection name="COLLECTION_1" type="list">
+                <element name="sample1_CACTGTGTATAG_1.txt" value="sample4_CGAAACCACTGT_1.txt"/>
+                <element name="sample3_GCTACCTGGTCA_1.txt" value="sample3_GCTACCTGGTCA_1.txt"/>
+                <element name="sample2_ATTCCGTCCGTC_1.txt" value="sample2_ATTCCGTCCGTC_1.txt"/>
+                <element name="sample1_CACTGTGTATAG_1.txt" value="sample1_CACTGTGTATAG_1.txt"/>
+            </output_collection>
+            <output_collection name="COLLECTION_2" type="list">
+                <element name="sample4_CGAAACCACTGT_2.txt" value="sample4_CGAAACCACTGT_2.txt"/>
+                <element name="sample3_GCTACCTGGTCA_2.txt" value="sample3_GCTACCTGGTCA_2.txt"/>
+                <element name="sample2_ATTCCGTCCGTC_2.txt" value="sample2_ATTCCGTCCGTC_2.txt"/>
+                <element name="sample1_CACTGTGTATAG_2.txt" value="sample1_CACTGTGTATAG_2.txt"/>
+            </output_collection>
         </test>
     </tests>
 
