@@ -133,6 +133,7 @@ Input files are fastq files, and can be in gzip compressed format.
 Author: Charles Girardot  (charles.girardot@embl.de).
 
 Wrapper by: Jelle Scholtalbers (jelle.scholtalbers@embl.de).
+
 With contributions by: Mehmet Tekman (@mtekman)
 
 ------
