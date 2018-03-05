@@ -60,7 +60,8 @@
             <param name="type" value="single"/>
             <param name="input_1" value="file_1_sequence.txt" ftype="fastqsanger"/>
             <param name="BARCODE_FILE" value="barcodes_SE.txt" ftype="tabular"/>
-            <output name="METRICS_FILE_NAME" file="summary_SE.txt" ftype="tabular" lines_diff="4">
+            <output name="METRICS_FILE_NAME" file="summary_SE.txt" ftype="tabular" lines_diff="4"/>
+            <output name="DEMULTIPLEX_RESULTS" ftype="tabular">
                 <discovered_dataset designation="unassigned_1" file="unassigned_1_SE.txt" />
             </output>
         </test>
@@ -75,11 +76,11 @@
             <param name="BRED" value="false"/>
 
             <param name="COLLECT_OUTPUTS" value="false" />
-
             <param name="barcode_list_type_con" value="text"/>
             <param name="barcode_text"
                 value="sample1 CACTGT:GTATAG&#10;sample2 ATTCCG:TCCGTC&#10;sample3 GCTACC:TGGTCA&#10;sample4 CGAAAC:CACTGT"/>
-            <output name="METRICS_FILE_NAME" file="summary_PE.txt" ftype="tabular" lines_diff="4">
+            <output name="METRICS_FILE_NAME" file="summary_PE.txt" ftype="tabular" lines_diff="4"/>
+            <output name="DEMULTIPLEX_RESULTS" ftype="tabular">
                 <discovered_dataset designation="unassigned_1" file="unassigned_1_PE.txt" />
                 <discovered_dataset designation="unassigned_2" file="unassigned_2_PE.txt" />
                 <discovered_dataset designation="sample4_CGAAACCACTGT_2" file="sample4_CGAAACCACTGT_2.txt"/>
@@ -101,7 +102,6 @@
             <param name="BPOS" value="BOTH"/>
             <param name="BM" value="BOTH"/>
             <param name="BRED" value="false"/>
-
             <param name="barcode_list_type_con" value="text"/>
             <param name="barcode_text"
                    value="sample1 CACTGT:GTATAG&#10;sample2 ATTCCG:TCCGTC&#10;sample3 GCTACC:TGGTCA&#10;sample4 CGAAAC:CACTGT"/>
@@ -133,6 +133,7 @@ Input files are fastq files, and can be in gzip compressed format.
 Author: Charles Girardot  (charles.girardot@embl.de).
 
 Wrapper by: Jelle Scholtalbers (jelle.scholtalbers@embl.de).
+With contributions by: Mehmet Tekman (@mtekman)
 
 ------
 
