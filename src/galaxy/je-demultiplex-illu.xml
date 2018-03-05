@@ -95,7 +95,8 @@
             <param name="MMD" value="2"/>
             <param name="Q" value="20"/>
 	        <param name="DIAG" value="false"/>
-            <output name="METRICS_FILE_NAME" file="illu_summary_PE.txt" ftype="tabular" lines_diff="4">
+            <output name="METRICS_FILE_NAME" file="illu_summary_PE.txt" ftype="tabular" lines_diff="4"/>
+            <output name="DEMULTIPLEX_RESULTS" ftype="tabular">
                 <discovered_dataset designation="unassigned_1" file="illu_unassigned_1_PE.txt" />
                 <discovered_dataset designation="unassigned_2" file="illu_unassigned_2_PE.txt" />
                 <discovered_dataset designation="emb681m5_GGACTCCTCTCTCTAT_2" file="emb681m5_GGACTCCTCTCTCTAT_2.txt"/>
@@ -123,6 +124,7 @@ Input files are fastq files, and can be in gzip compressed format.
 Author: Charles Girardot  (charles.girardot@embl.de).
 
 Wrapper by: Jelle Scholtalbers (jelle.scholtalbers@embl.de).
+With contributions by: Mehmet Tekman (@mtekman)
 
 ------
 
