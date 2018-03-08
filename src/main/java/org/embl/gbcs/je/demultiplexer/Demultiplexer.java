@@ -23,17 +23,14 @@
  */
 package org.embl.gbcs.je.demultiplexer;
 
-import htsjdk.samtools.SAMUtils;
-import htsjdk.samtools.fastq.FastqReader;
-import htsjdk.samtools.fastq.FastqRecord;
-import htsjdk.samtools.fastq.FastqWriter;
-import htsjdk.samtools.util.FastqQualityFormat;
-import htsjdk.samtools.util.SequenceUtil;
-import htsjdk.samtools.util.SolexaQualityConverter;
-
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.PrintWriter;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -46,8 +43,9 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.zip.GZIPInputStream;
 
-import org.embl.cg.utilitytools.utils.CollectionUtils;
+import org.embl.cg.utilitytools.utils.ExceptionUtil;
 import org.embl.gbcs.je.BarcodeMatch;
 import org.embl.gbcs.je.FastqWriterLayout;
 import org.embl.gbcs.je.JeUtils;
@@ -57,6 +55,14 @@ import org.embl.gbcs.je.ReadLayout;
 import org.embl.gbcs.je.SampleMatch;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import htsjdk.samtools.SAMUtils;
+import htsjdk.samtools.fastq.FastqReader;
+import htsjdk.samtools.fastq.FastqRecord;
+import htsjdk.samtools.fastq.FastqWriter;
+import htsjdk.samtools.util.FastqQualityFormat;
+import htsjdk.samtools.util.SequenceUtil;
+import htsjdk.samtools.util.SolexaQualityConverter;
 
 public class Demultiplexer {
 
@@ -72,6 +78,14 @@ public class Demultiplexer {
 	 */
 	File [] fastqInFiles; 
 	
+	/**
+	 * Je normally infers if input files are compressed or not by checking for a 'gz' extension. 
+	 * You can overwrite this behavior but setting this explicitly (useless in context where files are named by hash or UUID)
+	 */
+	Boolean compressedInputFastqFiles = null;
+	
+	
+
 	/*
 	 * ordered list of the ReadLayout ie matching fastqInFiles order
 	 */
@@ -127,7 +141,7 @@ public class Demultiplexer {
 	/**
 	 * The command line caller
 	 */
-	protected Jedemultiplex jedemultiplexer;
+	protected DemultiplexCLI jedemultiplexer;
 	
 	
 	/**
@@ -136,6 +150,8 @@ public class Demultiplexer {
 	 */
 	protected HashMap<String, Integer> sampleCountMap = null;
 	
+	//turned to true if a single sample named Jedemultiplex.UNIQUE_MULTIPLEXED_SAMPLE_NAME is found in the sample2outputFileList map
+	protected boolean WRITE_ALL_READS_IN_SAME_OUTPUT = false; 
 	
 	/**
 	 * 
@@ -158,7 +174,7 @@ public class Demultiplexer {
 	 * @param createMD5Sum
 	 */
 	public Demultiplexer(
-			Jedemultiplex jedemultiplexer,
+			DemultiplexCLI jedemultiplexer,
 			File [] fastqInFiles, 
 			ReadLayout [] readLayouts,
 			Map<String, List<Set<String>>> sample2BarcodeSets, 
@@ -194,7 +210,12 @@ public class Demultiplexer {
 		if(sample2outputFileList == null || sample2outputFileList.size() == 0)
 			throw new Jexception("no sample2outputFileList provided (null or empty)");
 		
-		if(sample2BarcodeSets.size() != sample2outputFileList.size())
+		if( sample2outputFileList.size() == 1 && !sample2outputFileList.containsKey(DemultiplexCLI.UNIQUE_MULTIPLEXED_SAMPLE_NAME)){
+			throw new Jexception("sample2outputFileList must have a unique entry when using sampel name '"+DemultiplexCLI.UNIQUE_MULTIPLEXED_SAMPLE_NAME+"' indicating that all reads must be written in the same output");
+		}
+		
+		WRITE_ALL_READS_IN_SAME_OUTPUT = (sample2outputFileList.size() == 1 && sample2outputFileList.containsKey(DemultiplexCLI.UNIQUE_MULTIPLEXED_SAMPLE_NAME) );
+		if(!WRITE_ALL_READS_IN_SAME_OUTPUT && sample2BarcodeSets.size() != sample2outputFileList.size())
 			throw new Jexception("The number samples described in sample2BarcodeSets and sample2outputFileList maps is not the same : "+sample2BarcodeSets.size() + "and "+ sample2outputFileList.size()+" (respectively)");
 		
 		//check all entries in sample2BarcodeSets have the same number of barcode set ; which must match the overall number of barcode slots across the read layouts
@@ -237,7 +258,19 @@ public class Demultiplexer {
 	
 	
 
+	/**
+	 * @return the compressedInputFastqFiles
+	 */
+	public Boolean isCompressedInputFastqFiles() {
+		return compressedInputFastqFiles;
+	}
 
+	/**
+	 * @param compressedInputFastqFiles the compressedInputFastqFiles to set
+	 */
+	public void setCompressedInputFastqFiles(Boolean compressedInputFastqFiles) {
+		this.compressedInputFastqFiles = compressedInputFastqFiles;
+	}
 
 
 
@@ -245,13 +278,11 @@ public class Demultiplexer {
 	 * @param max_mismatches one value for each defined BARCODE slot (in the read layouts)  
 	 * @param min_mismatch_deltas one value for each defined BARCODE slot (in the read layouts)
 	 * @param min_base_qualities one value for each defined BARCODE slot (in the read layouts)
-	 * @param useReadSequenceForBarcodes dictates what to write in the read header layouts of the {@link FastqWriterLayout}.
-	 * When false, the matched barcode is used. When true, the exact read sequence extracted from the barcode slot is written  
 	 * @param strict how to handle barcode with redundant slots
 	 * @param asyncWrite whether we should use async FASTQ writers
 	 * @param diagnosticFile if not null Je writes info on sample matching process 
 	 */
-	public void run(int[] max_mismatches, int[] min_mismatch_deltas, int[] min_base_qualities, boolean[] useReadSequenceForBarcodes, boolean strict, boolean asyncWrite, File diagnosticFile){
+	public void run(int[] max_mismatches, int[] min_mismatch_deltas, int[] min_base_qualities, boolean strict, boolean asyncWrite, File diagnosticFile){
 		
 		/*
 		 * Initialize all barcode maps 
@@ -315,7 +346,6 @@ public class Demultiplexer {
 		Map<String, List<FastqWriter>> sampleFastqWriters = new HashMap<String, List<FastqWriter>>(); 
 
 		for (Entry<String, List<File>> e : sample2outputFileList.entrySet()) {
-			sampleCountMap.put(e.getKey(), 0);
 			List<FastqWriter> _writers = new ArrayList<FastqWriter>();
 			for (File _f : e.getValue()) {
 				_writers.add(fastqFactory.newWriter(_f, gzipOutput, createMD5Sum));
@@ -324,6 +354,11 @@ public class Demultiplexer {
 		}
 
 
+		//init count map
+		for (String _smpl : sample2BarcodeSets.keySet()) {
+			sampleCountMap.put(_smpl, 0);
+		}
+		
 		/*
 		 * Open writers for unassigned FASTQ reads ; if requested
 		 */
@@ -345,7 +380,28 @@ public class Demultiplexer {
 		List<FastqReader> fastqReaders = new ArrayList<FastqReader>(); //we need to store them to close them at the end
 		List<Iterator<FastqRecord>> fastqFileIterators = new ArrayList<Iterator<FastqRecord>>();
 		for (File fqFile : fastqInFiles) {
-			FastqReader r = new FastqReader(fqFile);
+			FastqReader r = null;
+			if(isCompressedInputFastqFiles() == null) {
+				//we let Je check extensions to decide what reader to init on the files (gz or not)
+				r = new FastqReader(fqFile);
+			}
+			else {
+				//we follow the settings
+				InputStream is = null;
+				try {
+		            if (isCompressedInputFastqFiles() )  {
+		                is = new GZIPInputStream( Files.newInputStream(fqFile.toPath() ) );
+		            }
+		            else {
+		                is = Files.newInputStream( fqFile.toPath() );
+		            }
+				}catch(IOException ioe) {
+		        		throw new Jexception("Failed to open "+fqFile.getAbsolutePath()+" as a "+(isCompressedInputFastqFiles()?"gzipped":"non-compressed") +" file.\n"
+		        				+ExceptionUtil.getStackTrace(ioe));
+		        }
+				r = new FastqReader(fqFile, new BufferedReader(new InputStreamReader( is )));
+			}
+			
 			fastqReaders.add(r); 
 			fastqFileIterators.add( r.iterator() );
 		}
@@ -422,11 +478,15 @@ public class Demultiplexer {
 				sampleCountMap.put(assignedSample.getSample(), c);
 				
 				assigned++;
-				List<FastqWriter> writers  = sampleFastqWriters.get(assignedSample.getSample());
+				List<FastqWriter> writers  = ( 
+						WRITE_ALL_READS_IN_SAME_OUTPUT ? 
+								sampleFastqWriters.get(DemultiplexCLI.UNIQUE_MULTIPLEXED_SAMPLE_NAME) :
+									sampleFastqWriters.get(assignedSample.getSample()) 
+									);
 				for (int i = 0; i < writers.size(); i++) {
 					//prepare the output according to output layout
 					log.debug("Writing in output idx "+(i+1));
-					FastqRecord rec = outputFastqLayout[i].assembleRecord( reads, useReadSequenceForBarcodes, assignedSample );
+					FastqRecord rec = outputFastqLayout[i].assembleRecord( reads, assignedSample );
 					writers.get(i).write(rec);
 				}
 			}
@@ -439,7 +499,6 @@ public class Demultiplexer {
 					writers.get(i).write(reads[i]);
 				}
 			} 
-			
 		}
 		
 		

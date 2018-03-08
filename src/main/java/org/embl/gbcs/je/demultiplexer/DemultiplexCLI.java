@@ -67,10 +67,15 @@ import picard.cmdline.CommandLineProgram;
 import picard.cmdline.Option;
 import picard.cmdline.StandardOptionDefinitions;
 
-public class Jedemultiplex extends CommandLineProgram {
+public class DemultiplexCLI extends CommandLineProgram {
 	
 	
-	private static Logger log = LoggerFactory.getLogger(Jedemultiplex.class);
+	/*
+	 * when writing all reads in same file, this is the sample name key used in the sample2outfiles map
+	 */
+	public static final String UNIQUE_MULTIPLEXED_SAMPLE_NAME = "MULTIPLEXED";
+
+	private static Logger log = LoggerFactory.getLogger(DemultiplexCLI.class);
 
 	/*
 	 * Option defaults
@@ -116,7 +121,7 @@ public class Jedemultiplex extends CommandLineProgram {
 	 * Barcode file
 	 */
 	@Option(shortName="BF", optional = false,  mutex={"USE_EMBASE"},
-			printOrder=20,
+			printOrder=10,
 			doc="Barcode file (tsv) matching sample names to barcode combination. \n\n" +
 					"   ### GENERAL Barcode File Format \n"+
 					"In this format, the file structure is governed with headers:\n"+
@@ -179,16 +184,21 @@ public class Jedemultiplex extends CommandLineProgram {
 	
 	//Read layouts 
 	@Option(shortName="RL", optional = true,
-			printOrder=30,
-			doc="Describes the read layout(s) e.g. 'RL=<BARCODE1:6><SAMPLE:x>' of input fastq file(s). "+
+			printOrder=20,
+			doc="Describes the read layout(s) of input fastq file(s) e.g. RL='<BARCODE:6><SAMPLE:x>' describes a read with a barcode in the first 6 bases " +
+			"followed by the sample sequence ('x' means 'till the end', see below). You MUST single quote the pattern (RL='<BARCODE:6><SAMPLE:x>') as '>' have special meaning in unix."+
 			"The input fastq files and read layouts are mached up by order on the command line.\n" +
 			"Read layouts are only needed for complex layouts but one must provide read layouts for ALL or NONE of the input fastq files.\n"+
+			"## READ LAYOUT FORMAT DESCRIPTION:/n"+
 			"Read layouts are made of <UMIn:X>, <BARCODEn:X>, <SAMPLEn:X> blocks to describe blocks of type UMI, BARCODE or SAMPLE with : \n "+
 			"   * 'n' the unique block index (an index must be unique across all read layouts for each index or each block type), use the same"+
 			" index to specify redundant blocks e.g. use <BARCODE1:6> in two different layouts to specify that the barcode found in both reads are the same\n"+
 			"   * 'X' : either a number indicating the length of the UMI, BARCODE or SAMPLE block or a negative number e.g. -2 to specify the last 2 bases"+
-			" should be ignored/clipped) or the letter 'x' to specify to take the sequence till the end of read. Importantly, the 'x' or negative length shotcut "+
-			"can only be used in the last block of a read layout (i.e. <BARCODE1:x><SAMPLE1:20> is not allowed)\n\n" +
+			" should be ignored/clipped) or the letter 'x' to specify to take the sequence till the end of read. Importantly, the 'x' or negative length shortcuts "+
+			"can *only* be used in the last block of a read layout (i.e. <BARCODE1:x><SAMPLE1:20> is not allowed)\n" +
+			"In addition, layouts can contain N or fixed bases like in 'NN<BARCODE1:6>NNNN<SAMPLE1:x>' where the Ns tell Je to skip 2 and 4 bases before" +
+			" extracting the barcode & sample sequence respectively.\n\n"+
+			"## OMIITING READ LAYOUT IN THE COMMAND LINE:/n"+
 			"When no read layout is provided, the following defaults apply :\n"+
 			"   * 1 input fastq: single end with layout <BARCODE1:X><SAMPLE1:x> where X is inferred from barcode file\n"+
 			"   * 2 input fastqs: \n"+
@@ -211,31 +221,76 @@ public class Jedemultiplex extends CommandLineProgram {
 	
 	//output layouts
 	@Option(shortName="OL", optional = true,
-			printOrder=40,
-			doc="Describes the output file layout(s) using the slots defined in read layouts and ':' to delimitate three parts e.g. 'OL=1:<BARCODE1><UMI1><UMI2>:<SAMPLE1>' : \n" +
-					"\t"+"1.The number in the first part (i.e. from '1:' above) is the output file index and it must be unique across all 'OL' inputs. "+
-					      "Inferred from order in comamnd line when not given\n"+
-					"\t"+"2.The second part (i.e. '<BARCODE1><UMI1><UMI2>' above) is the read header layout ; when writing multiple UMI and BARCODE slots "+
+			printOrder=30,
+			doc="Describes the output file layout(s) using the slots defined in read layouts (<UMIn>, <BARCODEn>, <SAMPLEn>) and are made of "+
+			"three distinct parts separated with ':'.\n"+
+			"In addition to <UMIn>, <BARCODEn>, <SAMPLEn>, <READBARn> is used as a synonym to <BARCODEn> to indicate that the real sequence "+
+			" should be written (as opposed to writting the barcode when usign <BARCODEn>). \n"+
+			"An output layout looks like '1:<BARCODE1><UMI1><UMI2>:<SAMPLE1>' where the three mandatory parts (':'-separated) are :\n"+
+					"\t"+"- The number in the first part (i.e. from '1:' above) is the output file index and it must be unique across all 'OL' inputs. \n"+
+					"\t"+"- The second part (i.e. '<BARCODE1><UMI1><UMI2>' above) is the read header layout; when writing multiple UMI and BARCODE slots "+
 					"in output read headers, these are always separated with the RCHAR (':' by defaults).\n"+
-					"\t"+"3.The third part (i.e. '<SAMPLE1>' above) is the read sequence layout.\n"+
-			"One output file is created for each sample and each OL index. Output file names default to samplename_outputfileindex with the original extensions\n"+
-			"  ### When no OL is described, Je considers an output file should be created for each input FASTQ (containing a SAMPLE slot) and for each sample.\n "+
+					"\t"+"- The third part (i.e. '<SAMPLE1>' above) is the read sequence layout. Note that here <BARCODEn> and <READBARn> are fully synonyms as the real" +
+					" sequence (i.e READBAR) is always written\n\n"+
+			"Important: You MUST single quote the pattern (OL='1:<BARCODE1><UMI1><UMI2>:<SAMPLE1>') as '>' have special meaning in unix."+
+			"An output file is created for each sample and each OL index. Output file names default to samplename_outputfileindex with the original fastq file extensions\n\n"+
+			"## OMIITING OUTPUT LAYOUT IN THE COMMAND LINE:/n"+
+			"  When no OL is described, Je considers an output file should be created for each input FASTQ (containing a SAMPLE slot) and for each sample.\n "+
 			"In this scenario:\n"+
 					"\t"+"1. The output files only contain the SAMPLE slot unless CLIP is set to false\n"+
-					"\t"+"2. The barcode(s) and sample names are injected in the output file names occording to the pattern 'FASTQFILENAMEn_SAMPLENAME_BARCODES.ORIGINALEXTENSIONS' ) \n"+
-					"\t"+"3. All BARCODE and UMI slots (if any) are placed in the fastq headers following their slot index i.e. BARCODE1:...:BARCODEn:UMI1:UMI2:...:UMIn and are separated "
-							+ "with ':' (all UMIs are added to all file sets identically) ; unless ADD is et to false.\n"+
-			"  ### Short layout format \n"+
-			"A shorter more concise format can be used to specify the layout. 'S','B' and 'U' for SAMPLE, BARCODE and UMI. In this format the surounding '<>' are also omitted. "+
-			"For example 'OL=1:<BARCODE1><UMI1><UMI2>:<SAMPLE1>' can be written 'OL=1:B1U1U2:S1'"
+					"\t"+"2. The barcode(s) and sample names are injected in the output file names according to the pattern 'FASTQFILENAMEn_SAMPLENAME_BARCODES.ORIGINALEXTENSIONS' ) \n"+
+					"\t"+"3. Unless ADD is set to false, all BARCODE and UMI slots (if any) are placed in the fastq headers following their slot index i.e. BARCODE1:...:BARCODEn:UMI1:UMI2:...:UMIn and are separated "
+							+ "with ':'.\n"+
+			"## SHORT LAYOUT FORMAT \n"+
+			"The output layout can be specified in a concise way using 'S','B', 'R' and 'U' for SAMPLE, BARCODE, READBAR and UMI, respectively. In this format,"+
+			" the surounding '<>' are also omitted. For example 'OL=1:B1U1U2:S1' is a synonym of 'OL=1:<BARCODE1><UMI1><UMI2>:<SAMPLE1>'"
 			
 			)
 	public List<String> OUTPUT_LAYOUT;
+	/*
+	 * Final FastqWriterLayout created from OUTPUT_LAYOUT or defaults if OUTPUT_LAYOUT is not given 
+	 */
+	protected FastqWriterLayout [] outLayouts = null;
 	
+	
+	@Option(shortName="WQ", optional = true,
+			printOrder=35,
+			doc="Should quality string also be injected in read names. Only applies to READBAR and UMI described in the read name slot of output layout \n"+
+			"If turned on, the quality string is translated into 2 digits number and a e.g. UMI will look like\n"+
+					"\t"+" '...:ATGCAT333423212322:...' instead of '...:ATGCAT:...'\n"+
+			"This option is particularly useful with the retag module that knows how to extract quality numbers into BAM tags."
+				)
+	public boolean WITH_QUALITY_IN_READNAME = false;
+
+	
+	@Option(shortName = "O", optional = true,
+			printOrder=40,
+			doc="Output directory. By default, output files are written in running directory.\n")
+	public File OUTPUT_DIR = null;
+
+	@Option(shortName="UN", optional = true,
+			printOrder=50,
+			doc="Should un-assigned reads be saved in files or simply ignored. File names are automatically created"
+					+ " or can be given using UF option.\n"
+				)
+	public boolean KEEP_UNASSIGNED_READ = DEFAULT_KEEP_UNASSIGNED_READ;
+
+
+	@Option(shortName="UF", optional=true, 
+			printOrder=60,
+			doc="Name of unassigned files in which to write unassigned reads. When provided, Je expects as many UF files "
+					+ "as input FASTQ files. UF options are matched up with FASTQ options following the order they are defined on the command line.\n" 
+					+"Either a name (in which case the file will be created in the output dir) or full path.\n"
+			)
+	public List<String> UNASSIGNED_FILE = null;
+	
+	//unassignedFiles are unassignedFilePathes turned into File after validation of unassignedFilePathes
+	protected List<File> unassignedFiles = null;
+
 	
 	@Option(shortName="OWID",
 			optional = true,
-			printOrder=42,
+			printOrder=70,
 			doc="Should the output layout number (output layout first slot) be injected in the filename ?\n"+
 			    "Only used in absence of explicit file names in the barcode file.\n"
 			)
@@ -243,7 +298,7 @@ public class Jedemultiplex extends CommandLineProgram {
 
 	@Option(shortName="OWHL",
 			optional = true,
-			printOrder=44,
+			printOrder=75,
 			doc="Should the output layout used for the read name (output layout second slot,in short format) be injected in the filename ? "+
 			    "When true, each ouput file name contains e.g. '_B1U1' for OL='1:<BARCODE1><UMI1>:<SAMPLE1>'  \n"+
 			    "Only used in absence of explicit file names in the barcode file.\n"
@@ -253,7 +308,7 @@ public class Jedemultiplex extends CommandLineProgram {
 	
 	@Option(shortName="OWSL",
 			optional = true,
-			printOrder=46,
+			printOrder=80,
 			doc="Should the output layout used for the read sequence (output layout third slot, in short format) be injected in the filename ?"+
 				"When true, each ouput file name contains e.g. '_S1' for OL='1:<BARCODE1><UMI1>:<SAMPLE1>'  \n"+
 			    "Only used in absence of explicit file names in the barcode file.\n"
@@ -262,15 +317,25 @@ public class Jedemultiplex extends CommandLineProgram {
 
 	
 	
+	@Option(shortName="OF", optional=true, 
+			printOrder=90,
+			doc="Tells Je to write **all** assigned reads in the same output file(s) i.e. use this option when you do NOT want "+
+			"to create per-sample demultiplexed files but rather want to keep all reads in the same file while barcode information"+
+			" is gathered and injected in output formats.\n"+
+			" When provided, Je expects as many 'OF=<file>' as output layouts ('OL=...') parameters or 'FASTQ=input' files when OL is not provided\n."+
+			" OF options are matched up with OL/FASTQ options following the order in which they are defined on the command line.\n"+ 
+			"OF expects either a name (in which case the file will be created in the output dir) or an absolute path.\n"
+			)
+	public List<String> OUTPUT_FILE = null;
+	
+	//multiplexedOutFiles are OUTPUT_FILE turned into File after validation of OUTPUT_FILE
+	protected List<File> multiplexedOutFiles = null;
+	protected boolean WRITE_ALL_READS_IN_SAME_OUTPUT = false; //turned to true if multiplexedOutFiles is used
 	
 	
-	/*
-	 * Final FastqWriterLayout created from OUTPUT_LAYOUT or defaults if OUTPUT_LAYOUT is not given 
-	 */
-	FastqWriterLayout [] outLayouts = null;
 	
 	@Option(shortName = "MM", optional = true,
-			printOrder=60,
+			printOrder=100,
 			doc="Maximum mismatches for a barcode to be considered a match. Either exactly one or multiple values (with format MM=X:Y:Z). \n"+
 					"When multiple values are provided, Je expects exactly one value for each BARCODE (with distinct indices) described in the barcode file/read layouts.\n"+
 					"Values (X,Y,Z) are matched up with the sorted list of BARCODES (i.e.  X for BARCODE1, Y for BARCODE2 and Z for BARCODE3)\n"
@@ -282,7 +347,7 @@ public class Jedemultiplex extends CommandLineProgram {
 	
 	
 	@Option(shortName = "MMD", optional = true,
-			printOrder=70,
+			printOrder=110,
 			doc="Minimum difference between the number of mismatches against the best and the second best barcode. When MMD is not respected, "+
 					"the read remains unassigned.\n" +
 					"Either exactly one or multiple values (with format MMD=X:Y:Z). "+
@@ -295,7 +360,7 @@ public class Jedemultiplex extends CommandLineProgram {
 	int [] min_mismatch_deltas;
 
 	@Option(shortName="Q", optional = true,
-			printOrder=80,
+			printOrder=120,
 			doc="Minimum base quality during barcode matching: bases which quality is less than this cutoff are always considered as a mismatch." +
 					"Either exactly one or multiple values (with format Q=X:Y:Z). "+
 					"When multiple values are provided, Je expects exactly one value for each BARCODE (with distinct indices) described in the barcode file/read layouts.\n"+
@@ -307,76 +372,39 @@ public class Jedemultiplex extends CommandLineProgram {
 	int [] min_base_qualities;
 
 	@Option(shortName="S", optional = true,
-			printOrder=85,
+			printOrder=130,
 			doc="When reads have redundant BARCODE slots, this option tells how to handle situation when the read sequence do not resolve to the same sample.\n"
 					+" When true, the read pair is always 'unassigned'.\n"
 					+" When false, the read pair is assigned to the sample with the lowest overall mismatch sum\n"
 			)
 	public boolean STRICT = false;
 	
-	@Option(shortName = "O", optional = true,
-			printOrder=90,
-			doc="Output directory. By default, output files are written in running directory.\n")
-	public File OUTPUT_DIR = null;
-
+	
 	@Option(optional = true,
-			printOrder=100,
+			printOrder=140,
 			doc="Allows to overwrite existing files (system rights still apply).\n"
 			)
 	public boolean FORCE = false;
 	
 	
 	@Option(shortName="GZ", optional = true,
-			printOrder=110,
+			printOrder=150,
 			doc="Compress output files using gzip.\n"
 			)
 	public boolean GZIP_OUTPUTS = DEFAULT_GZIP_OUTPUTS;
 
 	
-	@Option(shortName="UN", optional = true,
-			printOrder=120,
-			doc="Should un-assigned reads be saved in files or simply ignored. File names are automatically created"
-					+ " or can be given using UF option.\n"
-				)
-	public boolean KEEP_UNASSIGNED_READ = DEFAULT_KEEP_UNASSIGNED_READ;
-
-
-	@Option(shortName="UF", optional=true, 
-			printOrder=130,
-			doc="Name of unassigned files in which to write unassigned reads. When provided, Je expects as many UF files "
-					+ "as FASTQ files. UF options are matched up with FASTQ options following the order they are defined on the command line.\n" 
-					+"Either a name (in which case the file will be created in the output dir) or full path.\n"
-			)
-	public List<String> unassignedFilePathes = null;
-	
-	//unassignedFiles are unassignedFilePathes turned into File after validation of unassignedFilePathes
-	public List<File> unassignedFiles = null;
-
-	
-	@Option(shortName = "ORI", optional = true,
-			printOrder=140,
-			doc="Tells which of the original sequence (i.e. the one clipped from each read) or the matched barcode (as defined in the barcode file) "+
-			" should be written in the read header. Only applies to BARCODE slots of output layouts (original sequence is always used for SAMPLE and UMI slots)."+
-			" This option can be specified one or more times, with format ORI=X:Y:Z where X,Y,Z is '1' or 'true' (for true) and '0' of 'false' (for false)."+
-			" When multiple values are provided, Je expects exactly one value for each BARCODE (with distinct indices) described in the barcode file/read layouts.\n" +
-			"Values (X,Y,Z) are matched up with the sorted list of BARCODES (i.e. X for BARCODE1, Y for BARCODE2 and Z for BARCODE3)\n"
-		
-			)
-	public String  USE_ORIGINAL_BARCODE_SEQUENCE  = DEFAULT_USE_ORIGINAL_BARCODE_SEQUENCE;
-	
-	public boolean [] useOriginalSequenceForBarcode = null;
-
 	
 	//in absence of output layout, should we clip barcodes and UMIs from sequence ? 
 	@Option(optional = true,
-			printOrder=150,
+			printOrder=160,
 			doc="In absence of output layout, tell if barcode and UMI sequences should be clipped off read sequence before writing to output file.\n"
 					+" If false, reads are written without modification to output file."
 			)
 	public boolean CLIP = DEFAULT_CLIP;
 
 	@Option(optional = true,
-			printOrder=160,
+			printOrder=170,
 			doc="In absence of output layout, tell if barcode and UMI sequences should be added at the end of the read header.\n"
 					+"BARCODE and UMI slots (in this order) are concatenated using the character defined by the SEP option\n"
 			)
@@ -385,15 +413,15 @@ public class Jedemultiplex extends CommandLineProgram {
 	
 	
 	@Option(shortName = "SEP", optional = true,
-			printOrder=170,
+			printOrder=180,
 			doc="Separator character used to concatenate barcodes and umis in read header\n"
 			)
 	public String READ_NAME_SEPARATOR_CHAR = DEFAULT_READ_NAME_SEPARATOR_CHAR;
-	
+
 
 	
 	@Option(shortName="V", optional = true,
-			printOrder=180,
+			printOrder=190,
 			doc="A value describing how the quality values are encoded in the fastq files.  Either 'Solexa' for pre-pipeline 1.3 " +
 					"style scores (solexa scaling + 66), 'Illumina' for pipeline 1.3 and above (phred scaling + 64) or 'Standard' for phred scaled " +
 					"scores with a character shift of 33.  If this value is not specified (or 'null' is given), the quality format will be detected.\n"
@@ -402,7 +430,7 @@ public class Jedemultiplex extends CommandLineProgram {
 
 	
 	@Option(shortName = StandardOptionDefinitions.METRICS_FILE_SHORT_NAME, optional = true,
-			printOrder=190,
+			printOrder=200,
 			doc="File name where to write demultiplexing statistics. "
 					+"Either a name (in which case the file will be created in the output dir) or an absolute path.\n"
 			)
@@ -412,7 +440,7 @@ public class Jedemultiplex extends CommandLineProgram {
 
 	
 	@Option(shortName = "DIAG", optional = true,
-			printOrder=200,
+			printOrder=210,
 			doc="Name for a barcode match reporting file (not generated by default)."
 					+"Either a name (in which case the file will be created in the output dir) or full path."
 					+" This file will contain a line per read set with the barcodes best matching the read subsequences "
@@ -424,13 +452,13 @@ public class Jedemultiplex extends CommandLineProgram {
 
 	
 	@Option(shortName="TEST", optional = true,
-			printOrder=210,
-			doc="test mode ie code execution stops right before read demultiplexing starts btu after comamnd line validation"
+			printOrder=220,
+			doc="test mode ie code execution stops right before read demultiplexing starts but after command line validation"
 			)
 	protected static boolean TEST_MODE_STOP_AFTER_PARSING = false;
 
 	@Option(optional=true,
-			printOrder=220,
+			printOrder=230,
 			doc="Change the default extension of created fastq files, eg 'fastqsanger'. By default uses the "
 					+ "file extension from input fastq file. If result file names are given in the barcode file, "
 					+ "this option is only used to adapt the unassigned file names. When using compression, a .gz is "
@@ -439,9 +467,15 @@ public class Jedemultiplex extends CommandLineProgram {
 			)
 	public String FASTQ_FILE_EXTENSION = null;
 	
+	@Option(optional=true,
+			printOrder=240,
+			doc="Indicates if the input fastq files are gzipped. Please use this option when file names are compressed but lack the typical '.gz' extension. \n"
+			)
+	public Boolean INPUT_FASTQ_COMPRESSION = null;
+	
 
 	@Option(shortName="ASYNC", optional = true,
-			printOrder=230,
+			printOrder=240,
 			doc="Use one thread per Fastq Writer.\n")
 	public boolean WRITER_FACTORY_USE_ASYNC_IO = DEFAULT_WRITER_FACTORY_USE_ASYNC_IO;
 
@@ -506,7 +540,7 @@ public class Jedemultiplex extends CommandLineProgram {
 			//did we have file names on command line ?
 			unassignedFiles = new ArrayList<File>();
 
-			if(unassignedFilePathes==null || unassignedFilePathes.isEmpty()){
+			if(UNASSIGNED_FILE==null || UNASSIGNED_FILE.isEmpty()){
 				//init with default names
 				for(File f : FASTQ){
 					String name = 
@@ -520,10 +554,10 @@ public class Jedemultiplex extends CommandLineProgram {
 				}
 			}
 			else{
-				if(unassignedFilePathes.size() > 0 && unassignedFilePathes.size() != FASTQ.size() )
-					return new String[]{"Only "+unassignedFilePathes.size()+" UF options found while "+FASTQ.size()+" FASTQ input files were give. FASTQ and UF option number must be the same."};
+				if(UNASSIGNED_FILE.size() > 0 && UNASSIGNED_FILE.size() != FASTQ.size() )
+					return new String[]{"Only "+UNASSIGNED_FILE.size()+" UF options found while "+FASTQ.size()+" FASTQ input files were give. FASTQ and UF option number must be the same."};
 
-				for (String p : unassignedFilePathes) {
+				for (String p : UNASSIGNED_FILE) {
 					if(FASTQ_FILE_EXTENSION!=null && !p.contains("."+FASTQ_FILE_EXTENSION)){
 						String newP = FileUtil.removeExtension(p) + "." +FASTQ_FILE_EXTENSION + (GZIP_OUTPUTS ? ".gz" : "");
 						log.warn("Provided UF option "+p+" does not match with provided FASTQ_FILE_EXTENSION "+FASTQ_FILE_EXTENSION+". Changing file name to "+newP);
@@ -603,7 +637,6 @@ public class Jedemultiplex extends CommandLineProgram {
 			max_mismatches = parseIntegerOptions("MAX_MISMATCHES", MAX_MISMATCHES, nBarcodes);
 			min_mismatch_deltas = parseIntegerOptions("MIN_MISMATCH_DELTA", MIN_MISMATCH_DELTA, nBarcodes);
 			min_base_qualities = parseIntegerOptions("MIN_BASE_QUALITY", MIN_BASE_QUALITY, nBarcodes);
-			useOriginalSequenceForBarcode = parseBooleanOptions("USE_ORIGINAL_BARCODE_SEQUENCE", USE_ORIGINAL_BARCODE_SEQUENCE, nBarcodes);
 		} catch (Jexception e) {
 			return new String[]{e.getMessage()};
 		}
@@ -623,7 +656,7 @@ public class Jedemultiplex extends CommandLineProgram {
 		 * 
 		 */
 		
-		DefaultLayouts defaultLayouts = new DefaultLayouts(FASTQ, barcodeParser, CLIP, ADD);
+		DefaultLayouts defaultLayouts = new DefaultLayouts(FASTQ, barcodeParser, CLIP, ADD, WITH_QUALITY_IN_READNAME, READ_NAME_SEPARATOR_CHAR);
 		if(this.READ_LAYOUT == null || this.READ_LAYOUT.isEmpty()){
 			if(FASTQ.size() > 4){
 				return new String[]{"You must provide read layouts for each provided input FASTQ files."};
@@ -655,13 +688,14 @@ public class Jedemultiplex extends CommandLineProgram {
 		 * Process output layout if provided. 
 		 * If not provided, create default layouts according to default SE and PE situation or the number of file with a SAMPLE slot
 		 */
-		
+		boolean USER_PROVIDED_OUTPUT_LAYOUT = true;
 		if(this.OUTPUT_LAYOUT == null || this.OUTPUT_LAYOUT.isEmpty()){
 			if(FASTQ.size() > 4){
 				return new String[]{"You must provide output layouts when more than 4 FASTQ files are provided."};
 			}
 			log.debug("init output format layout from defaults... ");
 			outLayouts = defaultLayouts.getFasqWriterLayouts();
+			USER_PROVIDED_OUTPUT_LAYOUT = false;
 		}
 		else{
 			if(READ_LAYOUT == null || READ_LAYOUT.isEmpty()){
@@ -696,7 +730,7 @@ public class Jedemultiplex extends CommandLineProgram {
 						seqLayout = parts[2];
 						break;
 					}
-					outLayouts[j] = new FastqWriterLayout(seqLayout, headerLayout, readLayouts);
+					outLayouts[j] = new FastqWriterLayout(seqLayout, headerLayout, readLayouts, this.WITH_QUALITY_IN_READNAME, this.READ_NAME_SEPARATOR_CHAR);
 				}catch(Exception e){
 					log.error(ExceptionUtil.getStackTrace(e));
 					return new String[]{e.getMessage()};
@@ -706,13 +740,55 @@ public class Jedemultiplex extends CommandLineProgram {
 		log.debug("Output format layouts are valid.");
 		
 		/*
+		 * Check if user wants all reads in the same output file(s)
+		 * 
+		 */
+		if(OUTPUT_FILE!=null && !OUTPUT_FILE.isEmpty()) {
+			multiplexedOutFiles = new ArrayList<File>();
+			//turn this global flag to true
+			WRITE_ALL_READS_IN_SAME_OUTPUT = true;
+			/*
+			 * now check what user gave us.
+			 * 1. If OL were provided, we need the same number of entries in multiplexedOutFilePathes 
+			 */
+			if(USER_PROVIDED_OUTPUT_LAYOUT) {
+				if(OUTPUT_FILE.size() != outLayouts.length) {
+					return new String[]{"You must provide as many OUTPUT_FILE (OF) options as OUTPUT_LAYOUT (OL) options."};
+				}
+			}else {
+				if(OUTPUT_FILE.size() != FASTQ.size()) {
+					return new String[]{"You must provide as many OUTPUT_FILE (OF) options as FASTQ input files."};
+				}
+			}
+			//numbers match, initialize the file File objects for each OUTPUT_FILE
+			for (String p : OUTPUT_FILE) {
+				if(FASTQ_FILE_EXTENSION!=null && !p.contains("."+FASTQ_FILE_EXTENSION)){
+					String newP = FileUtil.removeExtension(p) + "." +FASTQ_FILE_EXTENSION + (GZIP_OUTPUTS ? ".gz" : "");
+					log.warn("Provided OF option "+p+" does not match with provided FASTQ_FILE_EXTENSION "+FASTQ_FILE_EXTENSION+". Changing file name to "+newP);
+					p = newP;
+				}
+				File f = null;
+				if(GZIP_OUTPUTS && !p.endsWith(".gz"))
+					p += ".gz";
+
+				f = (looksLikeAPath(p) ? new File(p) : new File(OUTPUT_DIR, p) );
+
+				//register
+				multiplexedOutFiles.add(f);
+			}
+			
+		}
+		
+		
+		
+		/*
 		 * Check quality format
 		 */
 		if (QUALITY_FORMAT == null) {
 			FastqReader reader = new FastqReader(FASTQ.get(0));
 			QUALITY_FORMAT = QualityEncodingDetector.detect(100000, reader);
 			log.info(String.format("Auto-detected quality encoding format as: %s.", QUALITY_FORMAT));
-		}else{
+		} else {
 			log.info(String.format("Quality encoding format set to %s by user.", QUALITY_FORMAT));
 		}
 		
@@ -722,63 +798,67 @@ public class Jedemultiplex extends CommandLineProgram {
 		 */
 		log.debug("init output files for all samples...");
 		sample2outfiles = new HashMap<String, List<File>>();
-		if(barcodeParser.getSample2outfiles() != null && barcodeParser.getSample2outfiles().size() != 0){
-			log.debug("  file name or path provided in barcode file");
-			Boolean filenamesAreAlreadyPathes = null;
-			for (Entry<String, List<String>> e : barcodeParser.getSample2outfiles().entrySet()) {
-				String sampleName = e.getKey();
-				List<String> filenames = e.getValue(); // the parser already validated that we have a non empty value but that's all
-				//init ?
-				if(filenamesAreAlreadyPathes == null){
-					filenamesAreAlreadyPathes = looksLikeAPath(filenames.get(0));
-				}
-				
-				//convert to File
-				List<File> files = new ArrayList<File>();
-				for (String path : filenames) {
-					//are we consistent ?
-					if(filenamesAreAlreadyPathes != looksLikeAPath(path)){
-						String m = null;
-						if(filenamesAreAlreadyPathes)
-							m = "User provided output file (from barcode) "+path+" is not a proper path while other user provided file names are fully qualified path. "; 
-						else
-							m = "User provided output file (from barcode) "+path+" looks like a path while other user provided file names are not. ";
-						
-						m+= "Please don't mix up and either use filename or file path for all samples.";
-						return new String[]{m};
+		if ( WRITE_ALL_READS_IN_SAME_OUTPUT ) {
+			sample2outfiles.put(UNIQUE_MULTIPLEXED_SAMPLE_NAME, multiplexedOutFiles);
+		} else {
+			if(barcodeParser.getSample2outfiles() != null && barcodeParser.getSample2outfiles().size() != 0){
+				log.debug("  file name or path provided in barcode file");
+				Boolean filenamesAreAlreadyPathes = null;
+				for (Entry<String, List<String>> e : barcodeParser.getSample2outfiles().entrySet()) {
+					String sampleName = e.getKey();
+					List<String> filenames = e.getValue(); // the parser already validated that we have a non empty value but that's all
+					//init ?
+					if(filenamesAreAlreadyPathes == null){
+						filenamesAreAlreadyPathes = looksLikeAPath(filenames.get(0));
 					}
-						
-					File f = null;
-					if(filenamesAreAlreadyPathes)
-						f = new File(path);
-					else
-						f = new File(this.OUTPUT_DIR, path);
-					
-					files.add(f);
+
+					//convert to File
+					List<File> files = new ArrayList<File>();
+					for (String path : filenames) {
+						//are we consistent ?
+						if(filenamesAreAlreadyPathes != looksLikeAPath(path)){
+							String m = null;
+							if(filenamesAreAlreadyPathes)
+								m = "User provided output file (from barcode) "+path+" is not a proper path while other user provided file names are fully qualified path. "; 
+							else
+								m = "User provided output file (from barcode) "+path+" looks like a path while other user provided file names are not. ";
+
+							m+= "Please don't mix up and either use filename or file path for all samples.";
+							return new String[]{m};
+						}
+
+						File f = null;
+						if(filenamesAreAlreadyPathes)
+							f = new File(path);
+						else
+							f = new File(this.OUTPUT_DIR, path);
+
+						files.add(f);
+					}
+					sample2outfiles.put(sampleName, files);
 				}
-				sample2outfiles.put(sampleName, files);
 			}
-		}
-		else{
-			//no file name, init from output layouts
-			log.debug("  file name or path NOT provided in barcode file, initializing from output layouts ...");
-			for (Entry<String, List<Set<String>>> e : barcodeParser.getSample2BarcodeSets().entrySet()) {
-				String sampleName = e.getKey();
-				List<Set<String>> barcodeSetList = e.getValue();
-				String key = generateSampleKeyForFilename(sampleName, barcodeSetList);
-				List<File> files = new ArrayList<File>();
-				for (int i = 0; i < outLayouts.length; i++) {
-					FastqWriterLayout ol = outLayouts[i];
-					String fname = key + 
-							( ADD_SEQUENCE_LAYOUT_IN_OUTPUT_FILENAME ? "_" +ol.getReadSequenceLayout() : "" )+
-							( ADD_HEADER_LAYOUT_IN_OUTPUT_FILENAME ? "_" +ol.getReadNameLayout() : "" )+
-							( ADD_LAYOUT_IDX_IN_OUTPUT_FILENAME ? "_" + (i+1) :"" )+
-							"." +(FASTQ_FILE_EXTENSION == null ? "txt" : FASTQ_FILE_EXTENSION) +
-							(GZIP_OUTPUTS ? ".gz" : "") ;
-					
-					files.add( new File(OUTPUT_DIR , fname) );
+			else{
+				//no file name, init from output layouts
+				log.debug("  file name or path NOT provided in barcode file, initializing from output layouts ...");
+				for (Entry<String, List<Set<String>>> e : barcodeParser.getSample2BarcodeSets().entrySet()) {
+					String sampleName = e.getKey();
+					List<Set<String>> barcodeSetList = e.getValue();
+					String key = generateSampleKeyForFilename(sampleName, barcodeSetList);
+					List<File> files = new ArrayList<File>();
+					for (int i = 0; i < outLayouts.length; i++) {
+						FastqWriterLayout ol = outLayouts[i];
+						String fname = key + 
+								( ADD_SEQUENCE_LAYOUT_IN_OUTPUT_FILENAME ? "_" +ol.getReadSequenceLayout() : "" )+
+								( ADD_HEADER_LAYOUT_IN_OUTPUT_FILENAME ? "_" +ol.getReadNameLayout() : "" )+
+								( ADD_LAYOUT_IDX_IN_OUTPUT_FILENAME ? "_" + (i+1) :"" )+
+								"." +(FASTQ_FILE_EXTENSION == null ? "txt" : FASTQ_FILE_EXTENSION) +
+								(GZIP_OUTPUTS ? ".gz" : "") ;
+
+						files.add( new File(OUTPUT_DIR , fname) );
+					}
+					sample2outfiles.put(sampleName, files);
 				}
-				sample2outfiles.put(sampleName, files);
 			}
 		}
 		log.debug("  output file names created, now checking if they already exist ");
@@ -971,7 +1051,7 @@ public class Jedemultiplex extends CommandLineProgram {
 		//and call files according to input files, simply adding '_unassigned-reads' before extension
 		for(File f : FASTQ){
 			String ufname= FileUtil.removeExtension( f.getName() ) + "_unassigned-reads"+".txt.gz" ;
-			unassignedFilePathes.add(ufname);
+			UNASSIGNED_FILE.add(ufname);
 		}
 				
 		/*
@@ -1242,13 +1322,16 @@ public class Jedemultiplex extends CommandLineProgram {
 					this.GZIP_OUTPUTS, 
 					this.CREATE_MD5_FILE);
 			
+			if(INPUT_FASTQ_COMPRESSION != null) {
+				d.setCompressedInputFastqFiles(INPUT_FASTQ_COMPRESSION);
+			}
+			
 			log.debug("Demultiplexer successfully initialized... now running...");
 			
 			d.run(
 					max_mismatches, 
 					min_mismatch_deltas, 
 					min_base_qualities,
-					useOriginalSequenceForBarcode,
 					STRICT,
 					WRITER_FACTORY_USE_ASYNC_IO, 
 					bcDiagFile);
@@ -1447,7 +1530,9 @@ public class Jedemultiplex extends CommandLineProgram {
 				List<File> fastqFiles,
 				BarcodeFileGeneralParser barcodeParser,
 				boolean clip, 
-				boolean add
+				boolean add,
+				boolean withQualityInReadName, 
+				String readnameDelimitor
 				) {
 			
 			int bcNum = barcodeParser.getBarcodeLengths().size();
@@ -1464,7 +1549,7 @@ public class Jedemultiplex extends CommandLineProgram {
 					throw new Jexception("Je can't guess the layout of your FASTQ file: more than one BARCODE column found in barcode file while no read layout were provided on the command line.");
 				int bcLen = barcodeParser.getBarcodeLengths().get(0);
 				readLayouts[0] = new ReadLayout("<BARCODE1:"+bcLen+"><SAMPLE1:x>");
-				fasqWriterLayouts[0] = new FastqWriterLayout( (clip ? "" : "B1") + "S1", (add ? "B1" : ""), readLayouts);
+				fasqWriterLayouts[0] = new FastqWriterLayout( (clip ? "" : "B1") + "S1", (add ? "B1" : ""), readLayouts, withQualityInReadName, readnameDelimitor);
 				break;
 			case 2:
 				if(bcNum == 2){
@@ -1477,14 +1562,14 @@ public class Jedemultiplex extends CommandLineProgram {
 						//SE with index file
 						readLayouts[0] = new ReadLayout("<SAMPLE1:x>");
 						readLayouts[1] = new ReadLayout("<BARCODE1:"+bcLen+">");
-						fasqWriterLayouts[0] = new FastqWriterLayout( "S1", (add ? "B1" : ""), readLayouts);
-						fasqWriterLayouts[1] = new FastqWriterLayout( "B1", (add ? "B1" : ""), readLayouts);
+						fasqWriterLayouts[0] = new FastqWriterLayout( "S1", (add ? "B1" : ""), readLayouts, withQualityInReadName, readnameDelimitor);
+						fasqWriterLayouts[1] = new FastqWriterLayout( "B1", (add ? "B1" : ""), readLayouts, withQualityInReadName, readnameDelimitor);
 					}else{
 						//PE with redundant barcode
 						readLayouts[0] = new ReadLayout("<BARCODE1:"+bcLen+"><SAMPLE1:x>");
 						readLayouts[1] = new ReadLayout("<BARCODE1:"+bcLen+"><SAMPLE2:x>");
-						fasqWriterLayouts[0] = new FastqWriterLayout( (clip ? "" : "B1") + "S1", (add ? "B1" : ""), readLayouts);
-						fasqWriterLayouts[1] = new FastqWriterLayout( (clip ? "" : "B1") + "S2", (add ? "B1" : ""), readLayouts);
+						fasqWriterLayouts[0] = new FastqWriterLayout( (clip ? "" : "B1") + "S1", (add ? "B1" : ""), readLayouts, withQualityInReadName, readnameDelimitor);
+						fasqWriterLayouts[1] = new FastqWriterLayout( (clip ? "" : "B1") + "S2", (add ? "B1" : ""), readLayouts, withQualityInReadName, readnameDelimitor);
 					}
 				}
 				break;
@@ -1494,17 +1579,17 @@ public class Jedemultiplex extends CommandLineProgram {
 					readLayouts[0] = new ReadLayout("<SAMPLE1:x>");
 					readLayouts[1] = new ReadLayout("<SAMPLE2:x>");
 					readLayouts[2] = new ReadLayout("<BARCODE1:"+barcodeParser.getBarcodeLengths().get(0)+">");
-					fasqWriterLayouts[0] = new FastqWriterLayout( "S1", (add ? "B1" : ""), readLayouts);
-					fasqWriterLayouts[1] = new FastqWriterLayout( "S2", (add ? "B1" : ""), readLayouts);
-					fasqWriterLayouts[2] = new FastqWriterLayout( "B1", (add ? "B1" : ""), readLayouts);
+					fasqWriterLayouts[0] = new FastqWriterLayout( "S1", (add ? "B1" : ""), readLayouts, withQualityInReadName, readnameDelimitor);
+					fasqWriterLayouts[1] = new FastqWriterLayout( "S2", (add ? "B1" : ""), readLayouts, withQualityInReadName, readnameDelimitor);
+					fasqWriterLayouts[2] = new FastqWriterLayout( "B1", (add ? "B1" : ""), readLayouts, withQualityInReadName, readnameDelimitor);
 				}else{
 					//SE with 2 non redundant barcodes from index files
 					readLayouts[0] = new ReadLayout("<SAMPLE1:x>");
 					readLayouts[1] = new ReadLayout("<BARCODE1:"+barcodeParser.getBarcodeLengths().get(0)+">");
 					readLayouts[2] = new ReadLayout("<BARCODE2:"+barcodeParser.getBarcodeLengths().get(1)+">");
-					fasqWriterLayouts[0] = new FastqWriterLayout( "S1", (add ? "B1B2" : ""), readLayouts);
-					fasqWriterLayouts[1] = new FastqWriterLayout( "B1", (add ? "B1B2" : ""), readLayouts);
-					fasqWriterLayouts[2] = new FastqWriterLayout( "B2", (add ? "B1B2" : ""), readLayouts);
+					fasqWriterLayouts[0] = new FastqWriterLayout( "S1", (add ? "B1B2" : ""), readLayouts, withQualityInReadName, readnameDelimitor);
+					fasqWriterLayouts[1] = new FastqWriterLayout( "B1", (add ? "B1B2" : ""), readLayouts, withQualityInReadName, readnameDelimitor);
+					fasqWriterLayouts[2] = new FastqWriterLayout( "B2", (add ? "B1B2" : ""), readLayouts, withQualityInReadName, readnameDelimitor);
 				}
 				break;
 			case 4:
@@ -1514,21 +1599,26 @@ public class Jedemultiplex extends CommandLineProgram {
 					readLayouts[1] = new ReadLayout("<SAMPLE2:x>");
 					readLayouts[2] = new ReadLayout("<BARCODE1:"+barcodeParser.getBarcodeLengths().get(0)+">");
 					readLayouts[3] = new ReadLayout("<BARCODE1:"+barcodeParser.getBarcodeLengths().get(0)+">");
-					fasqWriterLayouts[0] = new FastqWriterLayout( "S1", (add ? "B1" : ""), readLayouts);
-					fasqWriterLayouts[1] = new FastqWriterLayout( "S2", (add ? "B1" : ""), readLayouts);
-					fasqWriterLayouts[2] = new FastqWriterLayout( "B1", (add ? "B1" : ""), readLayouts);
+					fasqWriterLayouts[0] = new FastqWriterLayout( "S1", (add ? "B1" : ""), readLayouts, withQualityInReadName, readnameDelimitor);
+					fasqWriterLayouts[1] = new FastqWriterLayout( "S2", (add ? "B1" : ""), readLayouts, withQualityInReadName, readnameDelimitor);
+					fasqWriterLayouts[2] = new FastqWriterLayout( "B1", (add ? "B1" : ""), readLayouts, withQualityInReadName, readnameDelimitor);
 				}else{
 					// PE with 2 non redundant barcodes from index file
 					readLayouts[0] = new ReadLayout("<SAMPLE1:x>");
 					readLayouts[1] = new ReadLayout("<SAMPLE2:x>");
 					readLayouts[2] = new ReadLayout("<BARCODE1:"+barcodeParser.getBarcodeLengths().get(0)+">");
 					readLayouts[3] = new ReadLayout("<BARCODE2:"+barcodeParser.getBarcodeLengths().get(1)+">");
-					fasqWriterLayouts[0] = new FastqWriterLayout( "S1", (add ? "B1B2" : ""), readLayouts);
-					fasqWriterLayouts[1] = new FastqWriterLayout( "S2", (add ? "B1B2" : ""), readLayouts);
-					fasqWriterLayouts[2] = new FastqWriterLayout( "B1", (add ? "B1B2" : ""), readLayouts);
-					fasqWriterLayouts[3] = new FastqWriterLayout( "B2", (add ? "B1B2" : ""), readLayouts);
+					fasqWriterLayouts[0] = new FastqWriterLayout( "S1", (add ? "B1B2" : ""), readLayouts, withQualityInReadName, readnameDelimitor);
+					fasqWriterLayouts[1] = new FastqWriterLayout( "S2", (add ? "B1B2" : ""), readLayouts, withQualityInReadName, readnameDelimitor);
+					fasqWriterLayouts[2] = new FastqWriterLayout( "B1", (add ? "B1B2" : ""), readLayouts, withQualityInReadName, readnameDelimitor);
+					fasqWriterLayouts[3] = new FastqWriterLayout( "B2", (add ? "B1B2" : ""), readLayouts, withQualityInReadName, readnameDelimitor);
 				}
 				break;
+			}
+			
+
+			for (FastqWriterLayout l : fasqWriterLayouts) {
+				l.setWithQualityInReadName(withQualityInReadName);
 			}
 			
 		}

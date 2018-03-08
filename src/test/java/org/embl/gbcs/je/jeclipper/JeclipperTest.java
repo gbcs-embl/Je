@@ -92,7 +92,7 @@ public class JeclipperTest {
 			};
 
 			Jeclipper j = new Jeclipper();
-			Assert.assertFalse(j.TEST_MODE_STOP_AFTER_PARSING);
+			Assert.assertFalse(Jeclipper.TEST_MODE_STOP_AFTER_PARSING);
 			
 			//parse
 			Assert.assertEquals(0, j.instanceMain(argv));

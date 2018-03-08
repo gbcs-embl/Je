@@ -28,7 +28,7 @@ import java.util.TreeSet;
 
 import org.embl.cg.utilitytools.utils.ExceptionUtil;
 import org.embl.cg.utilitytools.utils.StringUtil;
-import org.embl.gbcs.je.demultiplexer.Jedemultiplex;
+import org.embl.gbcs.je.demultiplexer.DemultiplexCLI;
 import org.embl.gbcs.je.jeclipper.Jeclipper;
 import org.embl.gbcs.je.jedropseq.Jedropseq;
 import org.embl.gbcs.je.jeduplicates.MarkDuplicatesWithMolecularCode;
@@ -66,7 +66,7 @@ public class Je  {
 		ALLOWED_COMMANDS.add(COMMAND_DUPES);
 		ALLOWED_COMMANDS.add(COMMAND_MULTIPLEX);
 		ALLOWED_COMMANDS.add(COMMAND_MULTIPLEX_ILLUMINA);
-		//ALLOWED_COMMANDS.add(COMMAND_DROPSEQ);
+		ALLOWED_COMMANDS.add(COMMAND_DROPSEQ);
 		ALLOWED_COMMANDS.add(COMMAND_DEMULTIPLEX);
 		ALLOWED_COMMANDS.add(COMMAND_RETAG);
 		
@@ -114,7 +114,7 @@ public class Je  {
 				new Jeclipper().instanceMainWithExit(argv); 
 			}
 			else if(option.equalsIgnoreCase(COMMAND_DEMULTIPLEX)){
-				new Jedemultiplex().instanceMainWithExit(argv);
+				new DemultiplexCLI().instanceMainWithExit(argv);
 			}
 			else if(option.equalsIgnoreCase(COMMAND_MULTIPLEX)){
 				new Jemultiplexer().instanceMainWithExit(argv);
@@ -147,12 +147,12 @@ public class Je  {
 	protected static String getUsage(){
 		return "Usage:   je <command> [options] \n\n"+
 				"with command in : \n"
-				+"\t "+COMMAND_CLIP+"      \t\t clips molecular barcodes from fastq sequence and places them in read name headers for further use in 'dupes' module\n"
-				+"\t "+COMMAND_DEMULTIPLEX+" \t\t demultiplexes fastq file(s), with optional handling of molecular barcodes for further use in 'dupes' module\n"
+				+"\t "+COMMAND_CLIP+"      \t\t clips barcodes/UMIs from fastq sequence and places them in read name headers \n"
+				+"\t "+COMMAND_DEMULTIPLEX+" \t\t demultiplexes fastq file(s) into user-defined output files, with optional handling of molecular barcodes\n"
 				+"\t "+COMMAND_MULTIPLEX+" \t\t demultiplexes fastq file(s) with Je 1.x implementation, with optional handling of molecular barcodes for further use in 'dupes' module\n"
 				+"\t "+COMMAND_MULTIPLEX_ILLUMINA+" \t demultiplexes fastq file(s) using Illumina Index files with Je 1.x implementation, with optional handling of molecular barcodes for further use in 'dupes' module\n"
 				+"\t "+COMMAND_DUPES+"     \t\t removes read duplicates based on molecular barcodes found in read name headers (as produced by clip or plex)\n"
-				//+"\t "+COMMAND_DROPSEQ+"    \t\t clips cell barcode and UMI from read 1 and adds them to header of read 2. This command is for processing drop-seq results.\n"
+				+"\t "+COMMAND_DROPSEQ+"    \t\t clips cell barcode and UMI from read 1 and adds them to header of read 2. This command is for processing drop-seq results.\n"
 				+"\t "+COMMAND_RETAG+"    \t\t extracts barcode and UMI sequence(s) embedded in read names and tag reads with proper BAM tag.\n"
 				+"\n"
 				+"Version : "+getVersion()

@@ -23,23 +23,37 @@
  */
 package org.embl.gbcs.je;
 
-import java.util.Arrays;
+import java.text.NumberFormat;
+import java.util.List;
 
+import org.embl.cg.utilitytools.utils.StringUtil;
+import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class JeTry {
-	private static Logger log = LoggerFactory.getLogger(JeTry.class);
+import htsjdk.samtools.fastq.FastqRecord;
 
-	public JeTry() {
-		// TODO Auto-generated constructor stub
-	}
+public class HTSLibTest {
+	private static Logger log = LoggerFactory.getLogger(HTSLibTest.class);
 
+	
+	
+	
+	/**
+	 * Give a wrong layout and make sure we get an exception 
+	 *  
+	 */
 	public static void main(String[] args) {
-		System.out.println(JeUtils.toBytesThenPhred(
-				"26242516303031"
-				));
+		String h = "@D3FCO8P1:178:C1WLBACXX:7:1101:1412:2021 1:N:0:";
+		String s = "GGAGAATCAAAGGGCAGGGACGTAATCAATGCGAGTTAANNNNNNNNNNNNNNNNNNNNTNNNNAGTTCANGTGAACANNTNCNNTTNANNNNNNNNNGCN";
+		String q = "CCCFFFFFGHHHHJJJJJJIIIHIJJIIJJJJJIJHIJI##############################################################";
+		FastqRecord r = new FastqRecord(h, s, "+", q);
 		
+		for (byte b : r.getBaseQualities()) {
+			NumberFormat nf = NumberFormat.getIntegerInstance();
+			nf.setMinimumIntegerDigits(2);
+			System.out.println(nf.format(b));
+		}
 	}
-
+	
 }

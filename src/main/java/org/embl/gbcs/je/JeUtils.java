@@ -28,8 +28,62 @@ import java.util.TreeSet;
 
 import com.developpez.adiguba.shell.ProcessConsumer;
 
+import htsjdk.samtools.SAMUtils;
+
 public class JeUtils {
 
+	/*
+	 * BC : for sample barcode, raw or corrected, with QT to store its quality string
+	 */
+	public static final String SAMTAG_BC = "BC"; 
+	
+	/*
+	 * QT : Phred quality of the sample-barcode sequence in the BC (or RT) tag
+	 */
+	public static final String SAMTAG_QT = "QT"; 
+	
+	
+	/*
+	 * RX : Sequence bases of the (possibly corrected) unique molecular identifier
+	 */
+	public static final String SAMTAG_RX = "RX"; 
+	
+	/*
+	 * QX : Quality score of the unique molecular identifier in the RX tag
+	 */
+	public static final String SAMTAG_QX = "QX"; 
+	
+	/*
+	 * OX : Original unique molecular barcode bases
+	 */
+	public static final String SAMTAG_OX = "OX"; 
+	
+	/*
+	 * BZ : Phred quality of the unique molecular barcode bases in the OX tag
+	 */
+	public static final String SAMTAG_BZ = "BZ"; 
+	
+	/*
+	 * MI : Molecular identifier; a string that uniquely identifies the molecule from which the record was derived
+	 */
+	public static final String SAMTAG_MI = "MI"; 
+	
+	
+	/**convert a string of quality numbers (each quality has 2 char) to the Phred String
+	 * ie 
+	 * @param s
+	 * @return
+	 */
+	public static String toBytesThenPhred(String s) {
+		byte [] arr = new byte [s.length()/2];
+		int i =0;
+		for(String t : s.split("(?<=\\G.{2})")) {
+			arr[i] = Byte.parseByte(t);
+			i++;
+		}
+		return SAMUtils.phredToFastq(arr);
+	}
+	
 	
 	/**
 	 * @return the result of executing whoami on the underlying OS 

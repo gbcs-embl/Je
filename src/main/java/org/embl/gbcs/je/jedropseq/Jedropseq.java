@@ -23,25 +23,21 @@
  */
 package org.embl.gbcs.je.jedropseq;
 
-import htsjdk.samtools.fastq.FastqReader;
-import htsjdk.samtools.fastq.FastqRecord;
-import htsjdk.samtools.fastq.FastqWriter;
-
 import java.io.File;
-import java.io.FileOutputStream;
-import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.Iterator;
-import java.util.zip.GZIPOutputStream;
 
 import org.apache.commons.lang3.StringUtils;
-import org.embl.cg.utilitytools.utils.ExceptionUtil;
 import org.embl.cg.utilitytools.utils.FileUtil;
 import org.embl.gbcs.je.JemultiplexerFastqWriterFactory;
-import org.embl.gbcs.je.jemultiplexer.BarcodePosition;
+import org.embl.gbcs.je.ReadLayoutConsumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import htsjdk.samtools.SAMUtils;
+import htsjdk.samtools.fastq.FastqReader;
+import htsjdk.samtools.fastq.FastqRecord;
+import htsjdk.samtools.fastq.FastqWriter;
 import picard.cmdline.CommandLineProgram;
 import picard.cmdline.CommandLineProgramProperties;
 import picard.cmdline.Option;
@@ -61,11 +57,14 @@ import picard.cmdline.programgroups.Illumina;
  *
  */
 @CommandLineProgramProperties(
-		usage = "\tInput fastq file(s) can be in gzip compressed format (end in .gz). \n"
-				+"See help for a detailled description of all options.\n"+
-				"Example: \n"
-				+"\tje dropseq F1=file.fastq.gz F2=file.fastq.gz LEN=12 ULEN=8 O=/path/to/resultdir/out.fastq.gz\n",
-				usageShort = "je dropseq F1=file_1.fastq.gz F2=file_2.fastq.gz LEN=8 O=/path/to/resultdir/file_2.fastq.gz", 
+		usage ="Reformat Drop-seq files into a single fastq file. DROP-seq produces 2 fastq files : one (F1) contains the cell barcode (usually 12 bp, LEN)"+
+				" followed by a UMI (usually 8bp, ULEN) while the second (F2) contains the RNA sequence. The output file is similar to F2 but holds the "+
+				"parsed barcode and UMI in read names.\n"+ 
+				"Input fastq file(s) can be in gzip compressed format (end in .gz). See help for a detailled description of all options.\n" +
+				"\n"+
+				"Example: \n"+
+				"\t"+"je dropseq F1=file.fastq.gz F2=file.fastq.gz LEN=12 ULEN=8 O=/path/to/resultdir/out.fastq.gz\n",
+				usageShort = "je dropseq F1=file_1.fastq.gz F2=file_2.fastq.gz LEN=12 ULEN=8 O=/path/to/resultdir/file.fastq.gz", 
 				programGroup = Illumina.class 
 		)
 public class Jedropseq extends CommandLineProgram {
@@ -115,8 +114,19 @@ public class Jedropseq extends CommandLineProgram {
 			)
 	public Integer UCLEN=null ; 
 	
+	
+	@Option(shortName="WQ", optional = true,
+			printOrder=35,
+			doc="Should quality string of barcode and UMI also be injected in read names.\n"+
+			"If true, the quality string is translated into 2 digits number and a e.g. UMI will look like\n"+
+					"\t"+" '...:ATGCAT333423212322:...' instead of '...:ATGCAT:...'\n"+
+			"This option is particularly useful with the retag module that knows how to extract quality numbers into BAM tags."
+				)
+	public boolean WITH_QUALITY_IN_READNAME = false;
+
+	
 	@Option(shortName = "N", optional = true, 
-			printOrder=30, 
+			printOrder=50, 
 			doc = "Maximum number of N's in the cell barcode sequence. If the cell barcode has this number or more N in the sequence, the read is ignored.\n"
 			)
 	public Integer MAX_N = 6 ; 
@@ -300,8 +310,14 @@ public class Jedropseq extends CommandLineProgram {
 				continue;
 			}
 			
+			if(WITH_QUALITY_IN_READNAME) {
+				//add the converted quality
+				cellBarcodeSeq += ReadLayoutConsumer.qualityToNumberString( SAMUtils.fastqToPhred(cellBarcodeQual) );
+				umiSeq += ReadLayoutConsumer.qualityToNumberString( SAMUtils.fastqToPhred(umiQual) );
+			}
+			
 			//write read2 with augmented header
-			String header = r2.getReadHeader().split("\\s")[0];
+			String header = r2.getReadName().split("\\s")[0];
 			header = header + this.READ_NAME_REPLACE_CHAR + cellBarcodeSeq + this.READ_NAME_REPLACE_CHAR + umiSeq;
 					
 			FastqRecord modifed = new FastqRecord(

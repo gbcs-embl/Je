@@ -112,42 +112,6 @@ public class ReadLayoutTest {
 	}
 	
 	
-	/**
-	 * Give a BC-UMI-SAMPLE layout with exact sample lenght and
-	 *  make sure the correct pieces are extracted
-	 */
-	@Test
-	public final void testMultiBlockLayout2() {
-		String layout = "A<UMI:3><BARCODE:6><BARCODE:3><UMI:8>N<SAMPLE:x>";
-		String bc1 = "ACACAC";
-		String bc2 = "GGG";
-		String umi1 = "ACT";
-		String umi2 = "ACGTACGT";
-		String smpl = "TACGACNACN"+"NACACACAGT"+"CG"; //22 long
-		String read = "A"+umi1+bc1+bc2+umi2+"A"+smpl;
-		
-		ReadLayout l = new ReadLayout(layout);
-		
-		Assert.assertTrue("containsBarcode() should be true but was not for layout: "+layout, l.containsBarcode() );
-		Assert.assertTrue("containsUMI() should be true but was not for layout: "+layout, l.containsUMI() );
-		Assert.assertTrue("containsSampleSequence() should be true but was not for layout: "+layout, l.containsSampleSequence() );
-		
-		Assert.assertEquals(2, l.umiBlockNumber());
-		Assert.assertEquals(2, l.barcodeBlockNumber());
-		
-		String[] arr  = l.extractBarcodes(read);
-		log.debug(arr[0]);
-		log.debug(arr[1]);
-		Assert.assertEquals(bc1, arr[0]);
-		Assert.assertEquals(bc2, arr[1]);
-		
-		Assert.assertEquals(umi1, l.extractUMIs(read)[0]);
-		Assert.assertEquals(umi2, l.extractUMIs(read)[1]);
-		
-		Assert.assertEquals(bc1+bc2, l.extractBarcode(read));
-		Assert.assertEquals(umi1+umi2, l.extractUMI(read));
-		Assert.assertEquals(smpl, l.extractSample(read));	
-	}
 	
 	/**
 	 * Give a BC-UMI-SAMPLE layout with exact sample lenght and
@@ -188,7 +152,7 @@ public class ReadLayoutTest {
 	
 	
 	/**
-	 * Give a BC-UMI-SAMPLE layout with exact sample lenght and
+	 * Give a BC-UMI-SAMPLE layout with exact sample length and
 	 *  make sure the correct pieces are extracted
 	 */
 	@Test

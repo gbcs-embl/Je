@@ -23,54 +23,30 @@
  */
 package org.embl.gbcs.je.jeclipper;
 
-import htsjdk.samtools.fastq.FastqReader;
-import htsjdk.samtools.fastq.FastqRecord;
-import htsjdk.samtools.fastq.FastqWriter;
-import htsjdk.samtools.util.FastqQualityFormat;
-import htsjdk.samtools.util.QualityEncodingDetector;
-
 import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.IOException;
-import java.io.PrintWriter;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
-import java.util.Date;
-import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Set;
 import java.util.TreeSet;
-import java.util.regex.Pattern;
 
 import org.embl.cg.utilitytools.utils.ExceptionUtil;
 import org.embl.cg.utilitytools.utils.FileUtil;
 import org.embl.cg.utilitytools.utils.StringUtil;
-import org.embl.cg.utilitytools.utils.parser.csv.CSVLine;
-import org.embl.cg.utilitytools.utils.parser.csv.InvalidHeaderException;
-import org.embl.gbcs.embase.api.EmBaseDatabaseFacade;
-import org.embl.gbcs.embase.api.Queries;
-import org.embl.gbcs.embase.api.exception.EmBASEConnectionException;
-import org.embl.gbcs.embase.api.model.Item;
-import org.embl.gbcs.embase.api.model.NGSLibrary;
-import org.embl.gbcs.je.ApplicationConfiguration;
 import org.embl.gbcs.je.FastqWriterLayout;
-import org.embl.gbcs.je.Je;
-import org.embl.gbcs.je.JeUtils;
 import org.embl.gbcs.je.JemultiplexerFastqWriterFactory;
 import org.embl.gbcs.je.Jexception;
 import org.embl.gbcs.je.ReadLayout;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import htsjdk.samtools.fastq.FastqReader;
+import htsjdk.samtools.fastq.FastqRecord;
+import htsjdk.samtools.fastq.FastqWriter;
 import picard.cmdline.CommandLineProgram;
 import picard.cmdline.CommandLineProgramProperties;
 import picard.cmdline.Option;
-import picard.cmdline.StandardOptionDefinitions;
-import picard.cmdline.programgroups.SamOrBam;
 
 @CommandLineProgramProperties(
 		usage = "Reads records in the supplied FASTQ file(s) according to specified read layouts (RL option) and write output FASTQ file(s)"
@@ -141,6 +117,15 @@ public class Jeclipper extends CommandLineProgram {
 					"\t"+"3.The third part (i.e. '<SAMPLE1>' above) is the read sequence layout.\n"
 			)
 	public List<String> OUTPUT_LAYOUT;
+	
+	@Option(shortName="WQ", optional = true,
+			printOrder=41,
+			doc="Should quality string also be injected in read names. Only applies to READBAR and UMI described in the read name slot of output layout \n"+
+			"If turned on, the quality string is translated into 2 digits number and a e.g. UMI will look like\n"+
+					"\t"+" '...:ATGCAT333423212322:...' instead of '...:ATGCAT:...'\n"+
+			"This option is particularly useful with the retag module that knows how to extract quality numbers into BAM tags."
+				)
+	public boolean WITH_QUALITY_IN_READNAME = false;
 	
 	
 	@Option(shortName="OWID",
@@ -304,6 +289,7 @@ public class Jeclipper extends CommandLineProgram {
 		log.debug("init output format layout from comamnd line... ");
 
 		outLayouts = new FastqWriterLayout[OUTPUT_LAYOUT.size()];
+		
 		for (int j = 0; j < OUTPUT_LAYOUT.size(); j++) {
 			String _ol = OUTPUT_LAYOUT.get(j);
 			try{
@@ -329,7 +315,12 @@ public class Jeclipper extends CommandLineProgram {
 					seqLayout = parts[2];
 					break;
 				}
-				outLayouts[j] = new FastqWriterLayout(seqLayout, headerLayout, readLayouts);
+				
+				/*
+				 * here BARCODE (or B) always mean READBAR (or R). We need to convert BARCODE to READBAR to
+				 *  make sure the FastqWriterLayout bahaves properly
+				 */
+				outLayouts[j] = new FastqWriterLayout(seqLayout, headerLayout, readLayouts, WITH_QUALITY_IN_READNAME, READ_NAME_SEPARATOR_CHAR, true);
 			}catch(Exception e){
 				log.error(ExceptionUtil.getStackTrace(e));
 				return new String[]{e.getMessage()};

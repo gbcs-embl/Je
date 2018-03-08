@@ -23,11 +23,8 @@
  */
 package org.embl.gbcs.je;
 
-import htsjdk.samtools.SAMUtils;
-import htsjdk.samtools.fastq.FastqRecord;
-
+import java.text.NumberFormat;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.regex.Matcher;
@@ -36,6 +33,9 @@ import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import htsjdk.samtools.SAMUtils;
+import htsjdk.samtools.fastq.FastqRecord;
+
 public class ReadLayoutConsumer {
 	private static Logger log = LoggerFactory.getLogger(ReadLayoutConsumer.class);
 	
@@ -43,6 +43,7 @@ public class ReadLayoutConsumer {
 	private static final byte BYTECODE_SAMPLE = 0;
 	private static final byte BYTECODE_BARCODE = 1;
 	private static final byte BYTECODE_UMI = 2;
+	private static final byte BYTECODE_READBAR = 3;
 	
 	
 	ArrayList<Byte> slotCodes = new ArrayList<Byte>();
@@ -50,19 +51,33 @@ public class ReadLayoutConsumer {
 	ArrayList<Set<Integer>> layoutIndicesToUseForSlots = new ArrayList<Set<Integer>>();
 	ReadLayout [] readLayouts;
 	String outPutLayout;
+	boolean withQualityInReadName;
+	String readNameDelimitor = ":";
+		 
 	
 	/**
 	 * @param outPutLayout in short format
 	 * @param readLayouts all ordered layout (order is as the reads are read from files)
 	 */
 	public ReadLayoutConsumer(String outPutLayout, ReadLayout [] readLayouts){
+		this(outPutLayout, readLayouts, false, ":");
+	}
+	
+	/**
+	 * @param outPutLayout in short format
+	 * @param readLayouts all ordered layout (order is as the reads are read from files)
+	 */
+	public ReadLayoutConsumer(String outPutLayout, ReadLayout [] readLayouts, boolean withQualityInReadName, String readNameDelimitor){
 		this.outPutLayout = outPutLayout;
 		this.readLayouts = readLayouts;
-
-		Pattern sub = Pattern.compile("([BUS])(\\d+)");
+		this.withQualityInReadName = withQualityInReadName;
+		this.readNameDelimitor = readNameDelimitor;
+		
+		
+		Pattern sub = Pattern.compile("([BUSR])(\\d+)");
 		Matcher subMatcher = sub.matcher("");
 
-		Pattern p = Pattern.compile("([BUS]\\d+)");
+		Pattern p = Pattern.compile("([BUSR]\\d+)");
 		Matcher m = p.matcher(outPutLayout);
 		log.debug("ReadLayoutConsumer created with "+outPutLayout);
 		while(m.find()){
@@ -77,6 +92,8 @@ public class ReadLayoutConsumer {
 			byte bCode ;
 			if(slotType.equalsIgnoreCase("B"))
 				bCode = BYTECODE_BARCODE;
+			else if(slotType.equalsIgnoreCase("R"))
+				bCode = BYTECODE_READBAR;
 			else if(slotType.equalsIgnoreCase("U"))
 				bCode = BYTECODE_UMI;
 			else 
@@ -98,7 +115,8 @@ public class ReadLayoutConsumer {
 				boolean canBeUsed = false;
 				switch (bCode) {
 				case BYTECODE_BARCODE:
-					canBeUsed = rl.containsBarcode() && rl.getBarcodeBlockUniqueIds().contains(slotId); 
+				case BYTECODE_READBAR:
+					canBeUsed = rl.containsBarcode() && rl.getBarcodeBlockUniqueIds().contains(slotId);
 					break;
 				case BYTECODE_UMI:
 					canBeUsed = rl.containsUMI() && rl.getUMIBlockUniqueIds().contains(slotId);
@@ -134,10 +152,7 @@ public class ReadLayoutConsumer {
 	 * @return
 	 */
 	public String assembleNewReadName(FastqRecord [] reads){
-
-		boolean[] useReadSequenceForBarcodes = new boolean[reads.length];
-		Arrays.fill(useReadSequenceForBarcodes, true);
-		return assembleNewReadName(reads, useReadSequenceForBarcodes, null);
+		return assembleNewReadName(reads, null);
 	}
 	
 	
@@ -147,16 +162,14 @@ public class ReadLayoutConsumer {
 	 *  
 	 * 
 	 * @param reads the reads in order matching that of the {@link ReadLayout} array used at construction
-	 * @param useReadSequenceForBarcodes dictates what to write in the read header layouts of the {@link FastqWriterLayout} for each BARCODE.
-	 * When false, the matched barcode is used. When true, the exact read sequence extracted from the barcode slot is written
 	 * @param m a {@link SampleMatch} holding all the barcode matches
 	 * 
 	 * @return
 	 */
-	public String assembleNewReadName(FastqRecord [] reads, boolean[] useReadSequenceForBarcodes, SampleMatch m){
+	public String assembleNewReadName(FastqRecord [] reads, SampleMatch m){
 
 		String newname = reads[0].getReadName().split("\\s")[0];
-		if(newname.endsWith(FastqWriterLayout.readNameDelimitor))
+		if(newname.endsWith(readNameDelimitor))
 			newname = newname.substring(0, newname.length()-1);
 		
 		log.debug("assembling read name with pattern "+this.outPutLayout);
@@ -168,8 +181,9 @@ public class ReadLayoutConsumer {
 			 * when a slot can be obtained from different reads (e.g. redundant barcode), keep the one with best overall quality
 			 */
 			String subseq = null;
+			byte[] qualB = null;
 			int bestQual = 0;
-			if(slotTypeCode == BYTECODE_BARCODE && !useReadSequenceForBarcodes[slotIdx-1] ){
+			if(slotTypeCode == BYTECODE_BARCODE ){
 				// we init the subseq with the matched barcode directly
 				subseq = m.getBarcodeMatches().get(slotIdx).barcode;
 			}else{
@@ -181,7 +195,7 @@ public class ReadLayoutConsumer {
 					String _subseq = null;
 					String _subqual = null;
 					switch (slotTypeCode) {
-					case BYTECODE_BARCODE:
+					case BYTECODE_READBAR:
 						_subseq  = rl.extractBarcode(readForLayout.getReadString(), slotIdx);
 						_subqual = rl.extractBarcode(readForLayout.getBaseQualityString(), slotIdx);
 						break;
@@ -194,19 +208,36 @@ public class ReadLayoutConsumer {
 						_subqual = rl.extractSample(readForLayout.getBaseQualityString(), slotIdx);
 						break;
 					}
-					int _qualsum = overallQuality( SAMUtils.fastqToPhred(_subqual) );
+					byte[] _qualB = SAMUtils.fastqToPhred(_subqual);
+					int _qualsum = overallQuality( _qualB );
 					if(subseq == null || _qualsum > bestQual){
 						subseq = _subseq;
+						qualB = _qualB;
 						bestQual = _qualsum;
 					}
 				}
 			}
 			//concatenate to the growing name
-			newname += FastqWriterLayout.readNameDelimitor + subseq;
+			newname += this.readNameDelimitor + subseq;
+			if(withQualityInReadName)
+				newname += qualityToNumberString(qualB);
 			log.debug("header is now : "+newname);
 		}
 
 		return newname;
+	}
+
+	/*
+	 * returns a string made of 2-digits quality scores for injection in the read name 
+	 */
+	public synchronized static String qualityToNumberString(byte[] qualbytes) {
+		NumberFormat nf = NumberFormat.getIntegerInstance();
+		nf.setMinimumIntegerDigits(2);
+		StringBuffer sb = new StringBuffer(qualbytes.length*2);
+		for (byte b : qualbytes) {
+			sb.append(nf.format(b));
+		}
+		return sb.toString();
 	}
 
 	/**
@@ -241,6 +272,7 @@ public class ReadLayoutConsumer {
 				String _subseq, _subqual = null;
 				switch (slotTypeCode) {
 				case BYTECODE_BARCODE:
+				case BYTECODE_READBAR:
 					_subseq  = rl.extractBarcode(readForLayout.getReadString(), slotIdx);
 					_subqual = rl.extractBarcode(readForLayout.getBaseQualityString(), slotIdx);
 					break;
