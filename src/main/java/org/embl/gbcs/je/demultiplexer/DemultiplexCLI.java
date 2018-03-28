@@ -255,9 +255,11 @@ public class DemultiplexCLI extends CommandLineProgram {
 	
 	@Option(shortName="WQ", optional = true,
 			printOrder=35,
-			doc="Should quality string also be injected in read names. Only applies to READBAR and UMI described in the read name slot of output layout \n"+
-			"If turned on, the quality string is translated into 2 digits number and a e.g. UMI will look like\n"+
-					"\t"+" '...:ATGCAT333423212322:...' instead of '...:ATGCAT:...'\n"+
+			doc="Set to True to keep Phred sequence qualities in output read names. \n"+
+			"This option only applies to BARCODE, READBAR and UMI described in the read name slot of output layout. "+
+			"For BARCODE, the equivalent READBAR quality is used. In case of redundant slots, the best found quality is used.\n"+
+			"The quality string is translated into 2 digits number representing the quality scores on the Phred scale and a e.g. UMI will look like\n"+
+					"\t"+" '...:ATGCAT333023212322:...' instead of '...:ATGCAT:...'\n"+
 			"This option is particularly useful with the retag module that knows how to extract quality numbers into BAM tags."
 				)
 	public boolean WITH_QUALITY_IN_READNAME = false;
@@ -424,7 +426,7 @@ public class DemultiplexCLI extends CommandLineProgram {
 			printOrder=190,
 			doc="A value describing how the quality values are encoded in the fastq files.  Either 'Solexa' for pre-pipeline 1.3 " +
 					"style scores (solexa scaling + 66), 'Illumina' for pipeline 1.3 and above (phred scaling + 64) or 'Standard' for phred scaled " +
-					"scores with a character shift of 33.  If this value is not specified (or 'null' is given), the quality format will be detected.\n"
+					"scores with a character shift of 33.  If this value is not specified (or 'null' is given), the quality format is assumed to be will the 'Standard' for phred scale.\n"
 			)
 	public FastqQualityFormat QUALITY_FORMAT = DEFAULT_QUALITY_FORMAT;
 
@@ -501,7 +503,23 @@ public class DemultiplexCLI extends CommandLineProgram {
 			if(_names.contains(f.getAbsolutePath())){
 				return new String[]{"Found twice the same file in FASTQ options: "+f.getAbsolutePath()};
 			}
-			_names.add(f.getAbsolutePath());
+			_names.add(f.getAbsolutePath());		
+		
+		}
+		
+		/*
+		 * Check quality format
+		 */
+		if (QUALITY_FORMAT == null) { // we expect Standard 
+			FastqReader [] readers = new FastqReader[FASTQ.size()];
+			int i = 0;
+			for(File f : FASTQ){
+				readers[i++] = new FastqReader(f);
+			}
+			QUALITY_FORMAT = JeUtils.determineQualityFormat(readers, FastqQualityFormat.Standard);
+			log.info( String.format("Auto-detected quality encoding format as '%s'. Please set V option explicitely if not correct.", QUALITY_FORMAT) );
+		} else {
+			log.info(String.format("Quality encoding format set to %s by user.", QUALITY_FORMAT));
 		}
 		
 		
@@ -656,7 +674,7 @@ public class DemultiplexCLI extends CommandLineProgram {
 		 * 
 		 */
 		
-		DefaultLayouts defaultLayouts = new DefaultLayouts(FASTQ, barcodeParser, CLIP, ADD, WITH_QUALITY_IN_READNAME, READ_NAME_SEPARATOR_CHAR);
+		DefaultLayouts defaultLayouts = new DefaultLayouts(FASTQ, barcodeParser, CLIP, ADD, WITH_QUALITY_IN_READNAME, READ_NAME_SEPARATOR_CHAR, QUALITY_FORMAT);
 		if(this.READ_LAYOUT == null || this.READ_LAYOUT.isEmpty()){
 			if(FASTQ.size() > 4){
 				return new String[]{"You must provide read layouts for each provided input FASTQ files."};
@@ -730,7 +748,7 @@ public class DemultiplexCLI extends CommandLineProgram {
 						seqLayout = parts[2];
 						break;
 					}
-					outLayouts[j] = new FastqWriterLayout(seqLayout, headerLayout, readLayouts, this.WITH_QUALITY_IN_READNAME, this.READ_NAME_SEPARATOR_CHAR);
+					outLayouts[j] = new FastqWriterLayout(seqLayout, headerLayout, readLayouts, this.WITH_QUALITY_IN_READNAME, this.READ_NAME_SEPARATOR_CHAR, this.QUALITY_FORMAT);
 				}catch(Exception e){
 					log.error(ExceptionUtil.getStackTrace(e));
 					return new String[]{e.getMessage()};
@@ -777,19 +795,6 @@ public class DemultiplexCLI extends CommandLineProgram {
 				multiplexedOutFiles.add(f);
 			}
 			
-		}
-		
-		
-		
-		/*
-		 * Check quality format
-		 */
-		if (QUALITY_FORMAT == null) {
-			FastqReader reader = new FastqReader(FASTQ.get(0));
-			QUALITY_FORMAT = QualityEncodingDetector.detect(100000, reader);
-			log.info(String.format("Auto-detected quality encoding format as: %s.", QUALITY_FORMAT));
-		} else {
-			log.info(String.format("Quality encoding format set to %s by user.", QUALITY_FORMAT));
 		}
 		
 		/*
@@ -1532,7 +1537,8 @@ public class DemultiplexCLI extends CommandLineProgram {
 				boolean clip, 
 				boolean add,
 				boolean withQualityInReadName, 
-				String readnameDelimitor
+				String readnameDelimitor, 
+				FastqQualityFormat fastqQualityFormat
 				) {
 			
 			int bcNum = barcodeParser.getBarcodeLengths().size();
@@ -1549,7 +1555,7 @@ public class DemultiplexCLI extends CommandLineProgram {
 					throw new Jexception("Je can't guess the layout of your FASTQ file: more than one BARCODE column found in barcode file while no read layout were provided on the command line.");
 				int bcLen = barcodeParser.getBarcodeLengths().get(0);
 				readLayouts[0] = new ReadLayout("<BARCODE1:"+bcLen+"><SAMPLE1:x>");
-				fasqWriterLayouts[0] = new FastqWriterLayout( (clip ? "" : "B1") + "S1", (add ? "B1" : ""), readLayouts, withQualityInReadName, readnameDelimitor);
+				fasqWriterLayouts[0] = new FastqWriterLayout( (clip ? "" : "B1") + "S1", (add ? "B1" : ""), readLayouts, withQualityInReadName, readnameDelimitor, fastqQualityFormat);
 				break;
 			case 2:
 				if(bcNum == 2){
@@ -1562,14 +1568,14 @@ public class DemultiplexCLI extends CommandLineProgram {
 						//SE with index file
 						readLayouts[0] = new ReadLayout("<SAMPLE1:x>");
 						readLayouts[1] = new ReadLayout("<BARCODE1:"+bcLen+">");
-						fasqWriterLayouts[0] = new FastqWriterLayout( "S1", (add ? "B1" : ""), readLayouts, withQualityInReadName, readnameDelimitor);
-						fasqWriterLayouts[1] = new FastqWriterLayout( "B1", (add ? "B1" : ""), readLayouts, withQualityInReadName, readnameDelimitor);
+						fasqWriterLayouts[0] = new FastqWriterLayout( "S1", (add ? "B1" : ""), readLayouts, withQualityInReadName, readnameDelimitor, fastqQualityFormat);
+						fasqWriterLayouts[1] = new FastqWriterLayout( "B1", (add ? "B1" : ""), readLayouts, withQualityInReadName, readnameDelimitor, fastqQualityFormat);
 					}else{
 						//PE with redundant barcode
 						readLayouts[0] = new ReadLayout("<BARCODE1:"+bcLen+"><SAMPLE1:x>");
 						readLayouts[1] = new ReadLayout("<BARCODE1:"+bcLen+"><SAMPLE2:x>");
-						fasqWriterLayouts[0] = new FastqWriterLayout( (clip ? "" : "B1") + "S1", (add ? "B1" : ""), readLayouts, withQualityInReadName, readnameDelimitor);
-						fasqWriterLayouts[1] = new FastqWriterLayout( (clip ? "" : "B1") + "S2", (add ? "B1" : ""), readLayouts, withQualityInReadName, readnameDelimitor);
+						fasqWriterLayouts[0] = new FastqWriterLayout( (clip ? "" : "B1") + "S1", (add ? "B1" : ""), readLayouts, withQualityInReadName, readnameDelimitor, fastqQualityFormat);
+						fasqWriterLayouts[1] = new FastqWriterLayout( (clip ? "" : "B1") + "S2", (add ? "B1" : ""), readLayouts, withQualityInReadName, readnameDelimitor, fastqQualityFormat);
 					}
 				}
 				break;
@@ -1579,17 +1585,17 @@ public class DemultiplexCLI extends CommandLineProgram {
 					readLayouts[0] = new ReadLayout("<SAMPLE1:x>");
 					readLayouts[1] = new ReadLayout("<SAMPLE2:x>");
 					readLayouts[2] = new ReadLayout("<BARCODE1:"+barcodeParser.getBarcodeLengths().get(0)+">");
-					fasqWriterLayouts[0] = new FastqWriterLayout( "S1", (add ? "B1" : ""), readLayouts, withQualityInReadName, readnameDelimitor);
-					fasqWriterLayouts[1] = new FastqWriterLayout( "S2", (add ? "B1" : ""), readLayouts, withQualityInReadName, readnameDelimitor);
-					fasqWriterLayouts[2] = new FastqWriterLayout( "B1", (add ? "B1" : ""), readLayouts, withQualityInReadName, readnameDelimitor);
+					fasqWriterLayouts[0] = new FastqWriterLayout( "S1", (add ? "B1" : ""), readLayouts, withQualityInReadName, readnameDelimitor, fastqQualityFormat);
+					fasqWriterLayouts[1] = new FastqWriterLayout( "S2", (add ? "B1" : ""), readLayouts, withQualityInReadName, readnameDelimitor, fastqQualityFormat);
+					fasqWriterLayouts[2] = new FastqWriterLayout( "B1", (add ? "B1" : ""), readLayouts, withQualityInReadName, readnameDelimitor, fastqQualityFormat);
 				}else{
 					//SE with 2 non redundant barcodes from index files
 					readLayouts[0] = new ReadLayout("<SAMPLE1:x>");
 					readLayouts[1] = new ReadLayout("<BARCODE1:"+barcodeParser.getBarcodeLengths().get(0)+">");
 					readLayouts[2] = new ReadLayout("<BARCODE2:"+barcodeParser.getBarcodeLengths().get(1)+">");
-					fasqWriterLayouts[0] = new FastqWriterLayout( "S1", (add ? "B1B2" : ""), readLayouts, withQualityInReadName, readnameDelimitor);
-					fasqWriterLayouts[1] = new FastqWriterLayout( "B1", (add ? "B1B2" : ""), readLayouts, withQualityInReadName, readnameDelimitor);
-					fasqWriterLayouts[2] = new FastqWriterLayout( "B2", (add ? "B1B2" : ""), readLayouts, withQualityInReadName, readnameDelimitor);
+					fasqWriterLayouts[0] = new FastqWriterLayout( "S1", (add ? "B1B2" : ""), readLayouts, withQualityInReadName, readnameDelimitor, fastqQualityFormat);
+					fasqWriterLayouts[1] = new FastqWriterLayout( "B1", (add ? "B1B2" : ""), readLayouts, withQualityInReadName, readnameDelimitor, fastqQualityFormat);
+					fasqWriterLayouts[2] = new FastqWriterLayout( "B2", (add ? "B1B2" : ""), readLayouts, withQualityInReadName, readnameDelimitor, fastqQualityFormat);
 				}
 				break;
 			case 4:
@@ -1599,19 +1605,19 @@ public class DemultiplexCLI extends CommandLineProgram {
 					readLayouts[1] = new ReadLayout("<SAMPLE2:x>");
 					readLayouts[2] = new ReadLayout("<BARCODE1:"+barcodeParser.getBarcodeLengths().get(0)+">");
 					readLayouts[3] = new ReadLayout("<BARCODE1:"+barcodeParser.getBarcodeLengths().get(0)+">");
-					fasqWriterLayouts[0] = new FastqWriterLayout( "S1", (add ? "B1" : ""), readLayouts, withQualityInReadName, readnameDelimitor);
-					fasqWriterLayouts[1] = new FastqWriterLayout( "S2", (add ? "B1" : ""), readLayouts, withQualityInReadName, readnameDelimitor);
-					fasqWriterLayouts[2] = new FastqWriterLayout( "B1", (add ? "B1" : ""), readLayouts, withQualityInReadName, readnameDelimitor);
+					fasqWriterLayouts[0] = new FastqWriterLayout( "S1", (add ? "B1" : ""), readLayouts, withQualityInReadName, readnameDelimitor, fastqQualityFormat);
+					fasqWriterLayouts[1] = new FastqWriterLayout( "S2", (add ? "B1" : ""), readLayouts, withQualityInReadName, readnameDelimitor, fastqQualityFormat);
+					fasqWriterLayouts[2] = new FastqWriterLayout( "B1", (add ? "B1" : ""), readLayouts, withQualityInReadName, readnameDelimitor, fastqQualityFormat);
 				}else{
 					// PE with 2 non redundant barcodes from index file
 					readLayouts[0] = new ReadLayout("<SAMPLE1:x>");
 					readLayouts[1] = new ReadLayout("<SAMPLE2:x>");
 					readLayouts[2] = new ReadLayout("<BARCODE1:"+barcodeParser.getBarcodeLengths().get(0)+">");
 					readLayouts[3] = new ReadLayout("<BARCODE2:"+barcodeParser.getBarcodeLengths().get(1)+">");
-					fasqWriterLayouts[0] = new FastqWriterLayout( "S1", (add ? "B1B2" : ""), readLayouts, withQualityInReadName, readnameDelimitor);
-					fasqWriterLayouts[1] = new FastqWriterLayout( "S2", (add ? "B1B2" : ""), readLayouts, withQualityInReadName, readnameDelimitor);
-					fasqWriterLayouts[2] = new FastqWriterLayout( "B1", (add ? "B1B2" : ""), readLayouts, withQualityInReadName, readnameDelimitor);
-					fasqWriterLayouts[3] = new FastqWriterLayout( "B2", (add ? "B1B2" : ""), readLayouts, withQualityInReadName, readnameDelimitor);
+					fasqWriterLayouts[0] = new FastqWriterLayout( "S1", (add ? "B1B2" : ""), readLayouts, withQualityInReadName, readnameDelimitor, fastqQualityFormat);
+					fasqWriterLayouts[1] = new FastqWriterLayout( "S2", (add ? "B1B2" : ""), readLayouts, withQualityInReadName, readnameDelimitor, fastqQualityFormat);
+					fasqWriterLayouts[2] = new FastqWriterLayout( "B1", (add ? "B1B2" : ""), readLayouts, withQualityInReadName, readnameDelimitor, fastqQualityFormat);
+					fasqWriterLayouts[3] = new FastqWriterLayout( "B2", (add ? "B1B2" : ""), readLayouts, withQualityInReadName, readnameDelimitor, fastqQualityFormat);
 				}
 				break;
 			}

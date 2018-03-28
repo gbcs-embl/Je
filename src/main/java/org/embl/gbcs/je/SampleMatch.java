@@ -41,6 +41,9 @@ public class SampleMatch {
 		 */
 		protected Map<Integer, BarcodeMatch> barcodeMatches;
 		
+		/**
+		 * A note to propagate for diagnostic file
+		 */
 		protected String diagnosticNote = "";
 		
 		public SampleMatch(String sample, Map<Integer, BarcodeMatch> barcodeMatches){

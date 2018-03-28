@@ -35,6 +35,7 @@ import org.embl.cg.utilitytools.utils.ExceptionUtil;
 import org.embl.cg.utilitytools.utils.FileUtil;
 import org.embl.cg.utilitytools.utils.StringUtil;
 import org.embl.gbcs.je.FastqWriterLayout;
+import org.embl.gbcs.je.JeUtils;
 import org.embl.gbcs.je.JemultiplexerFastqWriterFactory;
 import org.embl.gbcs.je.Jexception;
 import org.embl.gbcs.je.ReadLayout;
@@ -44,6 +45,7 @@ import org.slf4j.LoggerFactory;
 import htsjdk.samtools.fastq.FastqReader;
 import htsjdk.samtools.fastq.FastqRecord;
 import htsjdk.samtools.fastq.FastqWriter;
+import htsjdk.samtools.util.FastqQualityFormat;
 import picard.cmdline.CommandLineProgram;
 import picard.cmdline.CommandLineProgramProperties;
 import picard.cmdline.Option;
@@ -187,6 +189,14 @@ public class Jeclipper extends CommandLineProgram {
 			)
 	public String READ_NAME_SEPARATOR_CHAR = DEFAULT_READ_NAME_SEPARATOR_CHAR;
 	
+	@Option(shortName="V", optional = true,
+			printOrder=190,
+			doc="A value describing how the quality values are encoded in the fastq files.  Either 'Solexa' for pre-pipeline 1.3 " +
+					"style scores (solexa scaling + 66), 'Illumina' for pipeline 1.3 and above (phred scaling + 64) or 'Standard' for phred scaled " +
+					"scores with a character shift of 33.  If this value is not specified (or 'null' is given), the quality format is assumed to be will the 'Standard' for phred scale.\n"
+			)
+	public FastqQualityFormat QUALITY_FORMAT = null;
+
 	
 	@Option(shortName="TEST", optional = true,
 			printOrder=210,
@@ -237,6 +247,7 @@ public class Jeclipper extends CommandLineProgram {
 			_names.add(f.getAbsolutePath());
 		}
 			
+		
 		/*
 		 * Validate O
 		 * if not given, init to current dir else ensure the dir exists
@@ -253,6 +264,22 @@ public class Jeclipper extends CommandLineProgram {
 			}catch(Exception e){
 				return new String[]{"Failed to create output directory :"+OUTPUT_DIR.getAbsolutePath()};
 			}
+		}
+		
+		
+		/*
+		 * Check quality format
+		 */
+		if (QUALITY_FORMAT == null) { // we assume it s Standard
+			FastqReader [] readers = new FastqReader[FASTQ.size()];
+			int i = 0;
+			for(File f : FASTQ){
+				readers[i++] = new FastqReader(f);
+			}
+			QUALITY_FORMAT = JeUtils.determineQualityFormat(readers, FastqQualityFormat.Standard);
+			log.info( String.format("Auto-detected quality encoding format as '%s'. Please set V option explicitely if not correct.", QUALITY_FORMAT) );
+		} else {
+			log.info(String.format("Quality encoding format set to %s by user.", QUALITY_FORMAT));
 		}
 		
 		
@@ -320,7 +347,7 @@ public class Jeclipper extends CommandLineProgram {
 				 * here BARCODE (or B) always mean READBAR (or R). We need to convert BARCODE to READBAR to
 				 *  make sure the FastqWriterLayout bahaves properly
 				 */
-				outLayouts[j] = new FastqWriterLayout(seqLayout, headerLayout, readLayouts, WITH_QUALITY_IN_READNAME, READ_NAME_SEPARATOR_CHAR, true);
+				outLayouts[j] = new FastqWriterLayout(seqLayout, headerLayout, readLayouts, WITH_QUALITY_IN_READNAME, READ_NAME_SEPARATOR_CHAR, true, this.QUALITY_FORMAT);
 			}catch(Exception e){
 				log.error(ExceptionUtil.getStackTrace(e));
 				return new String[]{e.getMessage()};
@@ -480,7 +507,7 @@ public class Jeclipper extends CommandLineProgram {
 				for (int i = 0; i < fastqWriters.size(); i++) {
 					//prepare the output according to output layout
 					log.debug("Writing in output idx "+(i+1));
-					FastqRecord rec = outLayouts[i].assembleRecord( reads );
+					FastqRecord rec = outLayouts[i].assembleRecord( reads , null);
 					fastqWriters.get(i).write(rec);
 				}
 			}

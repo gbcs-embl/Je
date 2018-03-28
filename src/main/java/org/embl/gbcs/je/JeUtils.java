@@ -26,12 +26,23 @@ package org.embl.gbcs.je;
 import java.util.Set;
 import java.util.TreeSet;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.developpez.adiguba.shell.ProcessConsumer;
 
 import htsjdk.samtools.SAMUtils;
+import htsjdk.samtools.fastq.FastqReader;
+import htsjdk.samtools.util.FastqQualityFormat;
+import htsjdk.samtools.util.QualityEncodingDetector;
+import htsjdk.samtools.util.SolexaQualityConverter;
 
 public class JeUtils {
 
+	
+	private static Logger log = LoggerFactory.getLogger(JeUtils.class);
+
+	
 	/*
 	 * BC : for sample barcode, raw or corrected, with QT to store its quality string
 	 */
@@ -69,7 +80,7 @@ public class JeUtils {
 	public static final String SAMTAG_MI = "MI"; 
 	
 	
-	/**convert a string of quality numbers (each quality has 2 char) to the Phred String
+	/**convert a string of quality numbers in Phred Scale (each quality has 2 char) to the Standard Phred + 33 encoding
 	 * ie 
 	 * @param s
 	 * @return
@@ -83,6 +94,54 @@ public class JeUtils {
 		}
 		return SAMUtils.phredToFastq(arr);
 	}
+	
+	
+	/** 
+	 * Based on the type of quality scores coming in, converts them to a numeric byte[] in phred scale. 
+	 */
+	public static void convertQualityToPhred(byte[] quals, final FastqQualityFormat version) {
+		switch (version)  {
+		case Standard:
+			SAMUtils.fastqToPhred(quals);
+			break ;
+		case Solexa:
+			SolexaQualityConverter.getSingleton().convertSolexaQualityCharsToPhredBinary(quals);
+			break ;
+		case Illumina:
+			SolexaQualityConverter.getSingleton().convertSolexa_1_3_QualityCharsToPhredBinary(quals);
+			break ;
+		}
+	}
+	
+	
+	 /**
+     * Looks at fastq input(s) and attempts to determine the proper quality format
+     *
+     * Closes the reader(s) by side effect
+     *
+     * @param readers readers on the input fastq files
+     * @param expectedQuality If provided, will be used for sanity checking. If left null, autodetection will occur
+     */
+    public static FastqQualityFormat determineQualityFormat(final FastqReader [] readers, final FastqQualityFormat expectedQuality) {
+        final QualityEncodingDetector detector = new QualityEncodingDetector();
+
+        //add all fastq readers
+        detector.add(QualityEncodingDetector.DEFAULT_MAX_RECORDS_TO_ITERATE, readers);
+        //close all readers
+        for (FastqReader reader : readers) {
+        		reader.close();
+		}
+        //
+        final FastqQualityFormat qualityFormat =  detector.generateBestGuess(QualityEncodingDetector.FileContext.FASTQ, expectedQuality);
+        //in case there is no expected quality and different options were possible, warn user
+        if (detector.isDeterminationAmbiguous()) {
+            log.warn("Making ambiguous determination about fastq's quality encoding; more than one format possible based on observed qualities.");
+        }
+        
+        	log.info(String.format("Auto-detected quality format as: %s.", qualityFormat));
+
+        return qualityFormat;
+    }
 	
 	
 	/**

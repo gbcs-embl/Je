@@ -33,6 +33,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import htsjdk.samtools.fastq.FastqRecord;
+import htsjdk.samtools.util.FastqQualityFormat;
 
 public class FastqWriterLayoutTest {
 	private static Logger log = LoggerFactory.getLogger(FastqWriterLayoutTest.class);
@@ -59,7 +60,7 @@ public class FastqWriterLayoutTest {
 		};
 		for (String layout : layouts) {
 			try {
-				FastqWriterLayout l = new FastqWriterLayout(layout, null, rls, false, FastqWriterLayout.DEFAULT_READNAME_DELIMITOR);
+				FastqWriterLayout l = new FastqWriterLayout(layout, null, rls, false, FastqWriterLayout.DEFAULT_READNAME_DELIMITOR, FastqQualityFormat.Standard);
 				Assert.fail("Should have thrown an Jexception for layout "+layout);
 			} catch (Jexception e) {
 				log.debug(e.getMessage());
@@ -89,7 +90,7 @@ public class FastqWriterLayoutTest {
 				qualityheader, 
 				bcQual+samplQual);
 		try {
-			FastqWriterLayout fwl = new FastqWriterLayout(seqlayout, headlayout, new ReadLayout("<BARCODE:6><SAMPLE:x>"), false, FastqWriterLayout.DEFAULT_READNAME_DELIMITOR);		
+			FastqWriterLayout fwl = new FastqWriterLayout(seqlayout, headlayout, new ReadLayout[] {new ReadLayout("<BARCODE:6><SAMPLE:x>")}, false, FastqWriterLayout.DEFAULT_READNAME_DELIMITOR, FastqQualityFormat.Standard);		
 			FastqRecord r = fwl.assembleRecord(ori, null);
 			
 			Assert.assertEquals(readname+":"+bcSeq, r.getReadName());
@@ -98,7 +99,7 @@ public class FastqWriterLayoutTest {
 			Assert.assertEquals(samplQual, r.getBaseQualityString());
 			
 			seqlayout = "<READBAR1><SAMPLE1>" ; //write the real barcode sequence
-			fwl = new FastqWriterLayout(seqlayout, headlayout, new ReadLayout("<BARCODE:6><SAMPLE:x>"), false, FastqWriterLayout.DEFAULT_READNAME_DELIMITOR);		
+			fwl = new FastqWriterLayout(seqlayout, headlayout, new ReadLayout[] {new ReadLayout("<BARCODE:6><SAMPLE:x>")}, false, FastqWriterLayout.DEFAULT_READNAME_DELIMITOR, FastqQualityFormat.Standard);		
 			r = fwl.assembleRecord(ori, null);
 			Assert.assertEquals(bcSeq+samplSeq, r.getReadString());
 			Assert.assertEquals(bcQual+samplQual, r.getBaseQualityString());
@@ -122,7 +123,7 @@ public class FastqWriterLayoutTest {
 		String readname = "fakename";
 		String qualityheader = "+";
 		String bcSeq =  "AAATTT";
-		String bcQual = "AAAAAE"; //A is 32 and E is 36 
+		String bcQual = "AAAAAE"; //A is 32 + 33 and E is 36 + 33 
 		String bcQualNum = "323232323236";
 		String samplSeq =  "CGATGACTGCTAGCTGCTAGCTAGCAT";
 		String samplQual = "EE#EEEEEEEEEEEEEEEEEEEEEEEE";
@@ -135,7 +136,7 @@ public class FastqWriterLayoutTest {
 				qualityheader, 
 				bcQual+samplQual);
 		try {
-			FastqWriterLayout fwl = new FastqWriterLayout(seqlayout, headlayout, new ReadLayout("<BARCODE:6><SAMPLE:x>"), true, FastqWriterLayout.DEFAULT_READNAME_DELIMITOR);		
+			FastqWriterLayout fwl = new FastqWriterLayout(seqlayout, headlayout, new ReadLayout[] {new ReadLayout("<BARCODE:6><SAMPLE:x>")}, true, FastqWriterLayout.DEFAULT_READNAME_DELIMITOR, FastqQualityFormat.Standard);		
 			FastqRecord r = fwl.assembleRecord(ori, null);
 			
 			Assert.assertEquals(readname+":"+bcSeq+bcQualNum, r.getReadName());
@@ -144,7 +145,7 @@ public class FastqWriterLayoutTest {
 			Assert.assertEquals(samplQual, r.getBaseQualityString());
 			
 			seqlayout = "<READBAR1><SAMPLE1>" ; //write the real barcode sequence
-			fwl = new FastqWriterLayout(seqlayout, headlayout, new ReadLayout("<BARCODE:6><SAMPLE:x>"), true, FastqWriterLayout.DEFAULT_READNAME_DELIMITOR);		
+			fwl = new FastqWriterLayout(seqlayout, headlayout, new ReadLayout[] {new ReadLayout("<BARCODE:6><SAMPLE:x>")}, true, FastqWriterLayout.DEFAULT_READNAME_DELIMITOR, FastqQualityFormat.Standard);		
 			r = fwl.assembleRecord(ori, null);
 			Assert.assertEquals(readname+":"+bcSeq+bcQualNum, r.getReadName());
 			Assert.assertEquals(bcSeq+samplSeq, r.getReadString());
@@ -182,11 +183,11 @@ public class FastqWriterLayoutTest {
 		
 		
 		try {
-			FastqWriterLayout fwdl = new FastqWriterLayout("<SAMPLE1>", "<READBAR1>", new ReadLayout[]{rl1, rl2}, false, FastqWriterLayout.DEFAULT_READNAME_DELIMITOR);
-			FastqWriterLayout revl = new FastqWriterLayout("<SAMPLE2>", "<READBAR1>", new ReadLayout[]{rl1, rl2}, false, FastqWriterLayout.DEFAULT_READNAME_DELIMITOR);
+			FastqWriterLayout fwdl = new FastqWriterLayout("<SAMPLE1>", "<READBAR1>", new ReadLayout[]{rl1, rl2}, false, FastqWriterLayout.DEFAULT_READNAME_DELIMITOR, FastqQualityFormat.Standard);
+			FastqWriterLayout revl = new FastqWriterLayout("<SAMPLE2>", "<READBAR1>", new ReadLayout[]{rl1, rl2}, false, FastqWriterLayout.DEFAULT_READNAME_DELIMITOR, FastqQualityFormat.Standard);
 			
-			FastqRecord nfwd = fwdl.assembleRecord(new FastqRecord[]{fwd, rev}, null);
-			FastqRecord nrev = revl.assembleRecord(new FastqRecord[]{fwd, rev}, null);
+			FastqRecord nfwd = fwdl.assembleRecord(new FastqRecord[]{fwd, rev},  null);
+			FastqRecord nrev = revl.assembleRecord(new FastqRecord[]{fwd, rev},  null);
 			
 			Assert.assertEquals(readname+":CTGAGT", nfwd.getReadName());
 			Assert.assertEquals(readname+":CTGAGT", nrev.getReadName());
@@ -208,8 +209,8 @@ public class FastqWriterLayoutTest {
 		rl2 = new ReadLayout("<BARCODE2:6><SAMPLE2:x>");
 				
 		try {
-			FastqWriterLayout fwdl = new FastqWriterLayout("<SAMPLE1>", "<READBAR1><READBAR2>", new ReadLayout[]{rl1, rl2}, false, FastqWriterLayout.DEFAULT_READNAME_DELIMITOR);
-			FastqWriterLayout revl = new FastqWriterLayout("<SAMPLE2>", "<READBAR1><READBAR2>", new ReadLayout[]{rl1, rl2}, false, FastqWriterLayout.DEFAULT_READNAME_DELIMITOR);
+			FastqWriterLayout fwdl = new FastqWriterLayout("<SAMPLE1>", "<READBAR1><READBAR2>", new ReadLayout[]{rl1, rl2}, false, FastqWriterLayout.DEFAULT_READNAME_DELIMITOR, FastqQualityFormat.Standard);
+			FastqWriterLayout revl = new FastqWriterLayout("<SAMPLE2>", "<READBAR1><READBAR2>", new ReadLayout[]{rl1, rl2}, false, FastqWriterLayout.DEFAULT_READNAME_DELIMITOR, FastqQualityFormat.Standard);
 
 			FastqRecord nfwd = fwdl.assembleRecord(new FastqRecord[]{fwd, rev},  null);
 			FastqRecord nrev = revl.assembleRecord(new FastqRecord[]{fwd, rev},  null);
@@ -250,11 +251,11 @@ public class FastqWriterLayoutTest {
 		ReadLayout rl2 = new ReadLayout("<UMI1:10><SAMPLE2:x>");
 
 		try {
-			FastqWriterLayout fwdl = new FastqWriterLayout("<SAMPLE1>", "<READBAR1><UMI1>", new ReadLayout[]{rl1, rl2}, false, FastqWriterLayout.DEFAULT_READNAME_DELIMITOR);
-			FastqWriterLayout revl = new FastqWriterLayout("<SAMPLE2>", "<UMI1><READBAR1>", new ReadLayout[]{rl1, rl2}, false, FastqWriterLayout.DEFAULT_READNAME_DELIMITOR);
+			FastqWriterLayout fwdl = new FastqWriterLayout("<SAMPLE1>", "<READBAR1><UMI1>", new ReadLayout[]{rl1, rl2}, false, FastqWriterLayout.DEFAULT_READNAME_DELIMITOR, FastqQualityFormat.Standard);
+			FastqWriterLayout revl = new FastqWriterLayout("<SAMPLE2>", "<UMI1><READBAR1>", new ReadLayout[]{rl1, rl2}, false, FastqWriterLayout.DEFAULT_READNAME_DELIMITOR, FastqQualityFormat.Standard);
 
-			FastqRecord nfwd = fwdl.assembleRecord(new FastqRecord[]{fwd, rev}, null);
-			FastqRecord nrev = revl.assembleRecord(new FastqRecord[]{fwd, rev}, null);
+			FastqRecord nfwd = fwdl.assembleRecord(new FastqRecord[]{fwd, rev},  null);
+			FastqRecord nrev = revl.assembleRecord(new FastqRecord[]{fwd, rev},  null);
 
 			Assert.assertEquals(readname+":CTGAGT:CTGAGTGTTC", nfwd.getReadName());
 			Assert.assertEquals(readname+":CTGAGTGTTC:CTGAGT", nrev.getReadName());
@@ -301,13 +302,13 @@ public class FastqWriterLayoutTest {
 //			Assert.assertEquals("GTCA"+"TNNNNACTGAAGGGNTTCNNACTGAAGGGACTGAAGGG", rec1.getReadString());
 			
 			log.debug("testCrazyLayout => layout2");
-			FastqWriterLayout l2 = new FastqWriterLayout("<BARCODE3><SAMPLE2><SAMPLE3>", "<UMI1><UMI2>", new ReadLayout[]{rl1, rl2}, false, FastqWriterLayout.DEFAULT_READNAME_DELIMITOR);
-			FastqRecord rec2 = l2.assembleRecord(new FastqRecord[]{fwd, rev}, null);
+			FastqWriterLayout l2 = new FastqWriterLayout("<BARCODE3><SAMPLE2><SAMPLE3>", "<UMI1><UMI2>", new ReadLayout[]{rl1, rl2}, false, FastqWriterLayout.DEFAULT_READNAME_DELIMITOR, FastqQualityFormat.Standard);
+			FastqRecord rec2 = l2.assembleRecord(new FastqRecord[]{fwd, rev},  null);
 			Assert.assertEquals(readname+":GTCAAACT:ACGA", rec2.getReadName());
 			Assert.assertEquals("AA"+"TCAAACTTGACTGAAGGGATCTTCTTACATTTCCCTTCTTCAACATATTCTCTAATAT"+"GTTCGANCAAACTGAAGGGNNGAC", rec2.getReadString());
 			
 			log.debug("testCrazyLayout => layout3");
-			FastqWriterLayout l3 = new FastqWriterLayout("<BARCODE1><BARCODE2><BARCODE3>", "",new ReadLayout[]{rl1, rl2}, false, FastqWriterLayout.DEFAULT_READNAME_DELIMITOR);
+			FastqWriterLayout l3 = new FastqWriterLayout("<BARCODE1><BARCODE2><BARCODE3>", "",new ReadLayout[]{rl1, rl2}, false, FastqWriterLayout.DEFAULT_READNAME_DELIMITOR, FastqQualityFormat.Standard);
 			FastqRecord rec3 = l3.assembleRecord(new FastqRecord[]{fwd, rev}, null);
 			Assert.assertEquals(readname, rec3.getReadName());
 			Assert.assertEquals("CTGAGT"+"CTGAGT"+"AA", rec3.getReadString());

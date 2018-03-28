@@ -42,6 +42,7 @@ import htsjdk.samtools.util.ProgressLogger;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.UnsupportedEncodingException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -53,6 +54,7 @@ import java.util.TreeSet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import org.embl.cg.utilitytools.utils.ExceptionUtil;
 import org.embl.cg.utilitytools.utils.parser.csv.CSVLine;
 import org.embl.cg.utilitytools.utils.parser.csv.CSVParser;
 import org.embl.cg.utilitytools.utils.parser.csv.InvalidCSVSetUpException;
@@ -90,6 +92,11 @@ public class TagFromReadName extends CommandLineProgram {
 
 	private final Log log = Log.getInstance(TagFromReadName.class);
 
+	
+	static Pattern codeWithQuality = Pattern.compile("^([a-zA-Z]+)([0-9]*)$");
+	static Matcher codeWithQualityM = codeWithQuality.matcher("");
+	
+	
 
 	// input fastq files
 	@Option(shortName="I", 
@@ -250,7 +257,7 @@ public class TagFromReadName extends CommandLineProgram {
 	public boolean ADD_RG = false;
 
 	
-	@Option(doc = "Read Group platform (e.g. illumina, solid) ; only considered when RG=true")
+	@Option(doc = "Read Group platform (e.g. illumina, solid) ; only considered when RG=true", optional = true)
     public String RGPL;
 	
 	@Option(doc = "Read Group program group; only considered when RG=true", optional = true)
@@ -275,7 +282,7 @@ public class TagFromReadName extends CommandLineProgram {
     public String PROGRAM_GROUP_COMMAND_LINE;
 
 	@Option(shortName = "PG_NAME",
-            doc = "Value of PN tag of PG record to be created.")
+            doc = "Value of PN tag of PG record to be created.", optional = true)
     public String PROGRAM_GROUP_NAME = getClass().getSimpleName();
 
 	@Option(shortName = "CO",
@@ -555,8 +562,6 @@ public class TagFromReadName extends CommandLineProgram {
 
 	
 	
-	static Pattern codeWithQuality = Pattern.compile("^([a-Z]+)([0-9]*)$");
-	static Matcher codeWithQualityM = codeWithQuality.matcher("");
 	
 	/**
 	 * extract all the barcodes from indicated slots
@@ -591,19 +596,26 @@ public class TagFromReadName extends CommandLineProgram {
 				molQual.append(" ");
 			}
 			molCode.append(umiSeq);
-			molQual.append(  toBytesThenPhred(umiQual) );
+			molQual.append(  byteStringtoQualityString(umiQual) );
 			empty = false;
 		}
 		return new FastqRecord("", molCode.toString(), "", molQual.toString() );
 	}
 	
-	public String toBytesThenPhred(String s) {
+	/**
+	 * Converts a Phred score encoded as a 2-digit string, e.g. '645933', into Standard Fastq quality encoding String
+	 * 
+	 * @param s
+	 * @return
+	 */
+	public String byteStringtoQualityString(String s) {
 		byte [] arr = new byte [s.length()/2];
-		int i =0;
+ 		int i =0;
 		for(String t : s.split("(?<=\\G.{2})")) { // the regex splits string into pairs of char
 			arr[i] = Byte.parseByte(t);
 			i++;
 		}
+		
 		return SAMUtils.phredToFastq(arr);
 	}
 

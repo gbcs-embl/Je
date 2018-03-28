@@ -34,6 +34,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import htsjdk.samtools.fastq.FastqRecord;
+import htsjdk.samtools.util.FastqQualityFormat;
 
 /**
  * 
@@ -112,24 +113,32 @@ public class FastqWriterLayout {
 	 */
 	protected ReadLayout [] readLayouts;
 	
-	/**
-	 * @param readSequenceLayout
-	 * @param readNameLayout can be null when the read name should be reused unmodified
-	 * @param readLayouts
-	 */
-	public FastqWriterLayout(final String readSequenceLayout, final String readNameLayout, final ReadLayout [] readLayouts, final boolean withQualityInReadName, final String readNameDelimitor) {
-		this(readSequenceLayout, readNameLayout, readLayouts, withQualityInReadName, readNameDelimitor, false);
-	}
 	
 	/**
-	 * @param readSequenceLayout
-	 * @param readNameLayout
-	 * @param readLayouts
-	 * @param withQualityInReadName
-	 * @param readNameDelimitor
-	 * @param convertBarcodeToReadbar  if true all BARCODE slots are converted to READBAR in the readNameLayout (BARCODE == READBAR in readSequenceLayout)
+	 * the {@link FastqQualityFormat} of the input fastq files
 	 */
-	public FastqWriterLayout(final String readSequenceLayout, final String readNameLayout, final ReadLayout [] readLayouts, final boolean withQualityInReadName, final String readNameDelimitor, final boolean convertBarcodeToReadbar) {
+	protected FastqQualityFormat fastqQualityFormat = null;
+	
+
+	
+	
+	/**
+	 * @param readSequenceLayout the string representation of the output layout to use for the read sequence e.g. "S1"
+	 * @param readNameLayout the string representation of the output layout to use for the read name e.g. "B1U1S1" 
+	 * @param readLayouts the ordered {@link ReadLayout} objects defining how input fastq files are formatted
+	 * @param withQualityInReadName indicates if the Barcode/UMI quality should be injected in the read name together with their sequence
+	 * @param readNameDelimitor the character to use to split up the read name (':' is the default)
+	 * @param convertBarcodeToReadbar  if true all BARCODE slots are converted to READBAR in the readNameLayout (BARCODE == READBAR in readSequenceLayout)
+	 * @param fastqQualityFormat the {@link FastqQualityFormat} of the input fastq files
+	 */
+	public FastqWriterLayout(
+			final String readSequenceLayout, 
+			final String readNameLayout, 
+			final ReadLayout [] readLayouts, 
+			final boolean withQualityInReadName, 
+			final String readNameDelimitor, 
+			final boolean convertBarcodeToReadbar, 
+			final FastqQualityFormat fastqQualityFormat) {
 		
 		this.readNameLayout = (StringUtils.isBlank(readNameLayout) ? null : convertToShortLayout(readNameLayout));
 		this.readSequenceLayout = convertToShortLayout(readSequenceLayout);
@@ -139,24 +148,23 @@ public class FastqWriterLayout {
 		if(convertBarcodeToReadbar && readNameLayout!=null) {
 			this.readNameLayout = this.readNameLayout.replaceAll("B", "R");
 		}
+		this.fastqQualityFormat = fastqQualityFormat;
 		init(); //build all maps for easy lookup
 	}
 	
 
-	
 	/**
-	 * @param readSequenceLayout
-	 * @param readNameLayout can be null when the read name should be reused unmodified
-	 * @param readLayout
+	 * @param readSequenceLayout the string representation of the output layout to use for the read sequence e.g. "S1"
+	 * @param readNameLayout the string representation of the output layout to use for the read name e.g. "B1U1S1" 
+	 * @param readLayouts the ordered {@link ReadLayout} objects defining how input fastq files are formatted
+	 * @param withQualityInReadName indicates if the Barcode/UMI quality should be injected in the read name together with their sequence
+	 * @param readNameDelimitor the character to use to split up the read name (':' is the default)
+	 * @param fastqQualityFormat the {@link FastqQualityFormat} of the input fastq files
 	 */
-	public FastqWriterLayout(final String readSequenceLayout, final String readNameLayout, final ReadLayout readLayout, final boolean withQualityInReadName, final String readNameDelimitor) {
-		this(readSequenceLayout, readNameLayout, new ReadLayout[]{ readLayout }, withQualityInReadName, readNameDelimitor, false);
+	public FastqWriterLayout(final String readSequenceLayout, final String readNameLayout, final ReadLayout [] readLayouts, final boolean withQualityInReadName, final String readNameDelimitor, final FastqQualityFormat fastqQualityFormat) {
+		this(readSequenceLayout, readNameLayout, readLayouts, withQualityInReadName, readNameDelimitor, false, fastqQualityFormat);
 	}
 	
-	public FastqWriterLayout(final String readSequenceLayout, final String readNameLayout, final ReadLayout readLayout, final boolean withQualityInReadName, final String readNameDelimitor, final boolean convertBarcodeToReadbar) {
-		this(readSequenceLayout, readNameLayout, new ReadLayout[]{ readLayout }, withQualityInReadName, readNameDelimitor, convertBarcodeToReadbar);
-	}
-
 	
 	/**
 	 * @param layout
@@ -186,36 +194,18 @@ public class FastqWriterLayout {
 
 	
 	/**
-	 * Assemble the {@link FastqRecord} that should be written in the output file according to the layout(s).
-	 * This method also use the read sequence to write BARCODE in read name
-	 * @param reads the {@link FastqRecord} from the input fastq files in the order matching the {@link ReadLayout} given at construction 
+	 * Assemble the {@link FastqRecord} that should be written in the output file according to the layout(s) ; this method should be used when a barcode has been matched
 	 * 
+	 * @param reads the {@link FastqRecord} from the input fastq files in the order matching the {@link ReadLayout} given at construction
+	 * @param sampleMatch a {@link SampleMatch} holding all the barcode matches
 	 * @return
 	 */
-	public FastqRecord assembleRecord( FastqRecord[] reads ){
+	public FastqRecord assembleRecord( FastqRecord[] reads, SampleMatch sampleMatch ){
 		
 		FastqRecord rec = sequenceConsumer.assembleNewRead(reads);
 		String name = rec.getReadName(); 
 		if(readNameConsumer != null) 
-			name = readNameConsumer.assembleNewReadName(reads);
-		
-		FastqRecord ass = new FastqRecord(name, rec.getReadString(), rec.getBaseQualityHeader(), rec.getBaseQualityString());
-		log.debug("Assembled read for output using layout [NameLayout="+this.readNameLayout+" ; SequenceLayout="+this.readSequenceLayout+"] => \n"+ass.toFastQString());
-		return ass;
-	}
-
-	/**
-	 * Assemble the {@link FastqRecord} that should be written in the output file according to the layout(s)
-	 * @param reads the {@link FastqRecord} from the input fastq files in the order matching the {@link ReadLayout} given at construction 
-	 * @param m a {@link SampleMatch} holding all the barcode matches
-	 * @return
-	 */
-	public FastqRecord assembleRecord( FastqRecord[] reads, SampleMatch m ){
-		
-		FastqRecord rec = sequenceConsumer.assembleNewRead(reads);
-		String name = rec.getReadName(); 
-		if(readNameConsumer != null) 
-			name = readNameConsumer.assembleNewReadName(reads, m);
+			name = readNameConsumer.assembleNewReadName(reads, sampleMatch);
 		
 		FastqRecord ass = new FastqRecord(name, rec.getReadString(), rec.getBaseQualityHeader(), rec.getBaseQualityString());
 		log.debug("Assembled read for output using layout [NameLayout="+this.readNameLayout+" ; SequenceLayout="+this.readSequenceLayout+"] => \n"+ass.toFastQString());
@@ -224,7 +214,7 @@ public class FastqWriterLayout {
 	
 	/**
 	 * Convenient wrapper for single end configuration
-	 * @param read the {@link FastqRecord} from the input fastq file
+	 * @param read the {@link FastqRecord} from the input fastq file 
 	 * @param m a {@link SampleMatch} holding all the barcode matches  
 	 * @return
 	 */
@@ -255,7 +245,7 @@ public class FastqWriterLayout {
 			if(!Pattern.matches(SHORT_LAYOUT_REGEX, this.readNameLayout)){
 				throw new LayoutMalformedException("FASTQ Output Layout for read name does not match expected short format (regex is :"+SHORT_LAYOUT_REGEX+")", this.readNameLayout);
 			}
-			readNameConsumer = new ReadLayoutConsumer(this.readNameLayout, this.readLayouts, this.withQualityInReadName, this.readNameDelimitor);
+			readNameConsumer = new ReadLayoutConsumer(this.readNameLayout, this.readLayouts, this.withQualityInReadName , this.readNameDelimitor, this.fastqQualityFormat);
 		}
 	}
 	

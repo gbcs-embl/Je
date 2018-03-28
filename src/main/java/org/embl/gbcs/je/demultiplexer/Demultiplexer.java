@@ -836,7 +836,7 @@ public class Demultiplexer {
 		byte [] subseqBytes = readSlot.getReadBases();
 		byte [] qualBytes = readSlot.getBaseQualityString().getBytes();
 		log.debug("   Q bytes => "+Arrays.toString(qualBytes));
-		convertQuality(qualBytes, this.fastqQualityFormat);
+		JeUtils.convertQualityToPhred(qualBytes, this.fastqQualityFormat);
 		log.debug("   converted Q bytes => "+Arrays.toString(qualBytes));
 		
 		int numMismatchesInBestBarcode = readSlot.getReadLength() + 1; //init with max mismatch num + 1
@@ -920,22 +920,6 @@ public class Demultiplexer {
 	}
 
 	
-	/** 
-	 * Based on the type of quality scores coming in, converts them to a numeric byte[] in phred scale. 
-	 */
-	protected void convertQuality(byte[] quals, final FastqQualityFormat version) {
-		switch (version)  {
-		case Standard:
-			SAMUtils.fastqToPhred(quals);
-			break ;
-		case Solexa:
-			SolexaQualityConverter.getSingleton().convertSolexaQualityCharsToPhredBinary(quals);
-			break ;
-		case Illumina:
-			SolexaQualityConverter.getSingleton().convertSolexa_1_3_QualityCharsToPhredBinary(quals);
-			break ;
-		}
-	}
 	
 	
 	private FastqRecord[] nextReads(

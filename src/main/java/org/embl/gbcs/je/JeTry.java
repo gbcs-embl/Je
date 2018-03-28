@@ -28,6 +28,8 @@ import java.util.Arrays;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import htsjdk.samtools.SAMUtils;
+
 public class JeTry {
 	private static Logger log = LoggerFactory.getLogger(JeTry.class);
 
@@ -36,9 +38,7 @@ public class JeTry {
 	}
 
 	public static void main(String[] args) {
-		System.out.println(JeUtils.toBytesThenPhred(
-				"26242516303031"
-				));
+		
 		
 	}
 

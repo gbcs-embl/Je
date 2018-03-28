@@ -30,11 +30,13 @@ import java.util.TreeSet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import org.embl.gbcs.je.demultiplexer.Demultiplexer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import htsjdk.samtools.SAMUtils;
 import htsjdk.samtools.fastq.FastqRecord;
+import htsjdk.samtools.util.FastqQualityFormat;
 
 public class ReadLayoutConsumer {
 	private static Logger log = LoggerFactory.getLogger(ReadLayoutConsumer.class);
@@ -53,26 +55,36 @@ public class ReadLayoutConsumer {
 	String outPutLayout;
 	boolean withQualityInReadName;
 	String readNameDelimitor = ":";
-		 
+	FastqQualityFormat fastqQualityFormat = null;
 	
 	/**
-	 * @param outPutLayout in short format
-	 * @param readLayouts all ordered layout (order is as the reads are read from files)
+	 * Creates a simple ReadLayoutConsumer with default read name delimitor (':') and standard 
+	 * fastq quality format {@link FastqQualityFormat#Standard}. 
+	 * 
+	 * @param outPutLayout the string representation of the output layout e.g. "B1U1S1" 
+	 * @param readLayouts the ordered {@link ReadLayout} objects defining how input fastq files are formatted
+	 * 
 	 */
 	public ReadLayoutConsumer(String outPutLayout, ReadLayout [] readLayouts){
-		this(outPutLayout, readLayouts, false, ":");
+		this(outPutLayout, readLayouts, false, ":", FastqQualityFormat.Standard);
 	}
 	
+	
 	/**
-	 * @param outPutLayout in short format
-	 * @param readLayouts all ordered layout (order is as the reads are read from files)
+	 * Creates a ReadLayoutConsumer
+	 *  
+	 * @param outPutLayout the string representation of the output layout e.g. "B1U1S1" 
+	 * @param readLayouts the ordered {@link ReadLayout} objects defining how input fastq files are formatted
+	 * @param withQualityInReadName indicates if the Barcode/UMI quality should be injected in the read name together with their sequence
+	 * @param readNameDelimitor the character to use to split up the read name (':' is the default)
+	 * @param fastqQualityFormat the {@link FastqQualityFormat} of the input fastq files
 	 */
-	public ReadLayoutConsumer(String outPutLayout, ReadLayout [] readLayouts, boolean withQualityInReadName, String readNameDelimitor){
+	public ReadLayoutConsumer(String outPutLayout, ReadLayout [] readLayouts, boolean withQualityInReadName, String readNameDelimitor, final FastqQualityFormat fastqQualityFormat){
 		this.outPutLayout = outPutLayout;
 		this.readLayouts = readLayouts;
 		this.withQualityInReadName = withQualityInReadName;
 		this.readNameDelimitor = readNameDelimitor;
-		
+		this.fastqQualityFormat = fastqQualityFormat;
 		
 		Pattern sub = Pattern.compile("([BUSR])(\\d+)");
 		Matcher subMatcher = sub.matcher("");
@@ -142,19 +154,6 @@ public class ReadLayoutConsumer {
 
 
 	
-	/**
-	 * Assemble a read name by concatenating the output layout to the original read name.  
-	 * Concatenation is made by inserting a readNameDelimitor between each added slot 
-	 * In this method, the read sequence is always used in BARCODE slots
-	 * 
-	 * @param reads the reads in order matching that of the {@link ReadLayout} array used at construction
-	 * 
-	 * @return
-	 */
-	public String assembleNewReadName(FastqRecord [] reads){
-		return assembleNewReadName(reads, null);
-	}
-	
 	
 	/**
 	 * Assemble a read name by concatenating the output layout to the original read name.  
@@ -183,54 +182,61 @@ public class ReadLayoutConsumer {
 			String subseq = null;
 			byte[] qualB = null;
 			int bestQual = 0;
-			if(slotTypeCode == BYTECODE_BARCODE ){
-				// we init the subseq with the matched barcode directly
-				subseq = m.getBarcodeMatches().get(slotIdx).barcode;
-			}else{
-				for(int rlIdx : layoutIndicesToUseForSlots.get(i)){
 
-					ReadLayout rl = readLayouts[rlIdx];
-					FastqRecord readForLayout = reads[rlIdx];
+			for(int rlIdx : layoutIndicesToUseForSlots.get(i)){
 
-					String _subseq = null;
-					String _subqual = null;
-					switch (slotTypeCode) {
-					case BYTECODE_READBAR:
-						_subseq  = rl.extractBarcode(readForLayout.getReadString(), slotIdx);
-						_subqual = rl.extractBarcode(readForLayout.getBaseQualityString(), slotIdx);
-						break;
-					case BYTECODE_UMI:
-						_subseq = rl.extractUMI(readForLayout.getReadString(), slotIdx);
-						_subqual = rl.extractUMI(readForLayout.getBaseQualityString(), slotIdx);
-						break;
-					default:
-						_subseq = rl.extractSample(readForLayout.getReadString(), slotIdx);
-						_subqual = rl.extractSample(readForLayout.getBaseQualityString(), slotIdx);
-						break;
-					}
-					byte[] _qualB = SAMUtils.fastqToPhred(_subqual);
-					int _qualsum = overallQuality( _qualB );
-					if(subseq == null || _qualsum > bestQual){
-						subseq = _subseq;
-						qualB = _qualB;
-						bestQual = _qualsum;
-					}
+				ReadLayout rl = readLayouts[rlIdx];
+				FastqRecord readForLayout = reads[rlIdx];
+
+				String _subseq = null;
+				String _subqual = null;
+				switch (slotTypeCode) {
+				case BYTECODE_BARCODE:
+					// we init the subseq with the matched barcode directly
+					_subseq = m.getBarcodeMatches().get(slotIdx).barcode;
+					_subqual = rl.extractBarcode(readForLayout.getBaseQualityString(), slotIdx);
+					break;
+				case BYTECODE_READBAR:
+					_subseq  = rl.extractBarcode(readForLayout.getReadString(), slotIdx);
+					_subqual = rl.extractBarcode(readForLayout.getBaseQualityString(), slotIdx);
+					break;
+				case BYTECODE_UMI:
+					_subseq = rl.extractUMI(readForLayout.getReadString(), slotIdx);
+					_subqual = rl.extractUMI(readForLayout.getBaseQualityString(), slotIdx);
+					break;
+				default:
+					_subseq = rl.extractSample(readForLayout.getReadString(), slotIdx);
+					_subqual = rl.extractSample(readForLayout.getBaseQualityString(), slotIdx);
+					break;
+				}
+				byte[] _qualB = _subqual.getBytes();
+				int _qualsum = overallQuality( _qualB );
+				if(subseq == null || _qualsum > bestQual){
+					subseq = _subseq;
+					qualB = _qualB;
+					bestQual = _qualsum;
 				}
 			}
+
 			//concatenate to the growing name
 			newname += this.readNameDelimitor + subseq;
-			if(withQualityInReadName)
-				newname += qualityToNumberString(qualB);
+			if(withQualityInReadName) {			
+				newname += qualityToNumberString(qualB, this.fastqQualityFormat);
+			}
 			log.debug("header is now : "+newname);
 		}
 
 		return newname;
 	}
 
-	/*
-	 * returns a string made of 2-digits quality scores for injection in the read name 
+
+	/**
+	 * @param qualbytes byte representation of initial quality string 
+	 * @param fastqQualityFormat the encoding of these bytes
+	 * @return
 	 */
-	public synchronized static String qualityToNumberString(byte[] qualbytes) {
+	public synchronized static String qualityToNumberString(byte[] qualbytes, FastqQualityFormat fastqQualityFormat) {
+		JeUtils.convertQualityToPhred(qualbytes, fastqQualityFormat);
 		NumberFormat nf = NumberFormat.getIntegerInstance();
 		nf.setMinimumIntegerDigits(2);
 		StringBuffer sb = new StringBuffer(qualbytes.length*2);

@@ -38,6 +38,7 @@ import htsjdk.samtools.SAMUtils;
 import htsjdk.samtools.fastq.FastqReader;
 import htsjdk.samtools.fastq.FastqRecord;
 import htsjdk.samtools.fastq.FastqWriter;
+import htsjdk.samtools.util.FastqQualityFormat;
 import picard.cmdline.CommandLineProgram;
 import picard.cmdline.CommandLineProgramProperties;
 import picard.cmdline.Option;
@@ -90,13 +91,13 @@ public class Jedropseq extends CommandLineProgram {
 
 	@Option(shortName="F1", optional = false, 
 			printOrder=10, 
-			doc="Input fastq file (optionally gzipped) for first read. This read contains the cell barcode followed by the UMI"
+			doc="Input fastq file (optionally gzipped) for first read. This read contains the cell barcode followed by the UMI. Quality encoding must be Phred+33 (Standard)."
 			)
 	public File FASTQ_FILE1;
 
 	@Option(shortName="F2", optional = false, 
 			printOrder=20, 
-			doc="Input fastq file (optionally gzipped) for the second read."
+			doc="Input fastq file (optionally gzipped) for the second read. Quality encoding must be Phred+33 (Standard)."
 			)
 	public File FASTQ_FILE2 = null;
 
@@ -312,8 +313,8 @@ public class Jedropseq extends CommandLineProgram {
 			
 			if(WITH_QUALITY_IN_READNAME) {
 				//add the converted quality
-				cellBarcodeSeq += ReadLayoutConsumer.qualityToNumberString( SAMUtils.fastqToPhred(cellBarcodeQual) );
-				umiSeq += ReadLayoutConsumer.qualityToNumberString( SAMUtils.fastqToPhred(umiQual) );
+				cellBarcodeSeq += ReadLayoutConsumer.qualityToNumberString( cellBarcodeQual.getBytes(), FastqQualityFormat.Standard );
+				umiSeq += ReadLayoutConsumer.qualityToNumberString( umiQual.getBytes() , FastqQualityFormat.Standard);
 			}
 			
 			//write read2 with augmented header
