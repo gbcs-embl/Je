@@ -345,11 +345,11 @@ ${from_text_area}</configfile>
         </data>
         <collection name="COLLECTION_1" type="list" label="${tool.name} on ${on_string} : Reads_1" >
             <filter>COLLECT_OUTPUTS and STATS_ONLY == False</filter>
-            <discover_datasets pattern="(?P&lt;designation&gt;.+_1\..+)" ext="fastqsangar" directory="results" visible="false" />
+            <discover_datasets pattern="(?P&lt;designation&gt;.+_1\..+)" ext="fastqsanger" directory="results" visible="false" />
         </collection>
         <collection name="COLLECTION_2" type="list" label="${tool.name} on ${on_string} : Reads_2" >
             <filter>COLLECT_OUTPUTS and STATS_ONLY == False</filter>
-            <discover_datasets pattern="(?P&lt;designation&gt;.+_2\..+)" ext="fastqsangar" directory="results" visible="false" />
+            <discover_datasets pattern="(?P&lt;designation&gt;.+_2\..+)" ext="fastqsanger" directory="results" visible="false" />
         </collection>
     </xml>
     <xml name="citations">
