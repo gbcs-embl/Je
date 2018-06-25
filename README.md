@@ -1,5 +1,7 @@
 # Je
 
+The main public repository is at [github](https://github.com/gbcs-embl/Je/) where issues or pull request can be created.
+
 Additional documentation and support can be found at http://gbcs.embl.de/je
 
 ## Installation
