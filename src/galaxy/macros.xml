@@ -194,7 +194,7 @@
 
             <when value="text">
                 <param name="barcode_text" type="text" area="True" size="10x30"
-                    value="sample_name <tab> barcode" label="Barcode List"
+                    value="sample_name &lt;tab&gt; barcode" label="Barcode List"
                     help="Barcode list format: one sample per line. First column is sample name and second is the
                     barcode, separated by tab or space. A third and fourth column can be used to specify the resulting
                     file names. See help below.">
