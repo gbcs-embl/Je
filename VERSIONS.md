@@ -4,3 +4,4 @@
 In the rare situation where barcode matching resolve to 2 **different** samples with no mismatch in both cases, 
 the code *could* assign the PE reads always to the same sample. To avoid this is the future, the PE reads are now
 unassigned in this very special situation. 
+ 
