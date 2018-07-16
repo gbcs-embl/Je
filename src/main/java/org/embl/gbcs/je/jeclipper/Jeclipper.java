@@ -23,762 +23,591 @@
  */
 package org.embl.gbcs.je.jeclipper;
 
-import htsjdk.samtools.fastq.FastqReader;
-import htsjdk.samtools.fastq.FastqRecord;
-import htsjdk.samtools.fastq.FastqWriter;
-
 import java.io.File;
-import java.io.FileOutputStream;
-import java.io.PrintWriter;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Iterator;
-import java.util.zip.GZIPOutputStream;
+import java.util.List;
+import java.util.Set;
+import java.util.TreeSet;
 
-import org.apache.commons.lang3.StringUtils;
 import org.embl.cg.utilitytools.utils.ExceptionUtil;
 import org.embl.cg.utilitytools.utils.FileUtil;
-import org.embl.gbcs.je.jemultiplexer.BarcodePosition;
-import org.embl.gbcs.je.jemultiplexer.JemultiplexerFastqWriterFactory;
+import org.embl.cg.utilitytools.utils.StringUtil;
+import org.embl.gbcs.je.FastqWriterLayout;
+import org.embl.gbcs.je.JeUtils;
+import org.embl.gbcs.je.JemultiplexerFastqWriterFactory;
+import org.embl.gbcs.je.Jexception;
+import org.embl.gbcs.je.ReadLayout;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import htsjdk.samtools.fastq.FastqReader;
+import htsjdk.samtools.fastq.FastqRecord;
+import htsjdk.samtools.fastq.FastqWriter;
+import htsjdk.samtools.util.FastqQualityFormat;
 import picard.cmdline.CommandLineProgram;
 import picard.cmdline.CommandLineProgramProperties;
 import picard.cmdline.Option;
-import picard.cmdline.programgroups.Illumina;
 
-
-
-
-/**
- * 
- * Jeclipper is a utility to clip molecular barcodes off FASTQ sequence.
- * Jeclipper is NOT a demultiplexer ie it writes a single result file (2 in case of paired end). 
- * Clipped sequences can be added to read headers 
- * 
- * @author girardot
- *
- */
 @CommandLineProgramProperties(
-		usage = "\tInput fastq file(s) can be in gzip compressed format (end in .gz). \n"
-				+"\tBy default, output file(s) are gzipped and have names following the pattern :\n"
-				+"\t\t'<inputfile_name>_clipped.<inputfile_extension>[.gz]'\n" 
-				+"\tSee help for a detailled description of all options.\n"+
-				"Example: \n"
-				+"\tje clip F1=file.fastq.gz LEN=8 O=/path/to/resultdir/\n",
-				usageShort = "je clip F1=file.fastq.gz LEN=8 O=/path/to/resultdir/", 
-				programGroup = Illumina.class 
+		usage = "Reads records in the supplied FASTQ file(s) according to specified read layouts (RL option) and write output FASTQ file(s)"
+				+ " according to supplied output layouts (OL option).\n" , 
+		usageShort = "je clip F=fastq_1.txt.gz F=fastq_2.txt.gz RL=<BARCODE1:6><UMI1:8><SAMPLE1:x> RL=<BARCODE1:6><UMI2:8><SAMPLE2:x> OL=1:B1U1U2:S1 OL=2:B1U1U2:S2"
 		)
 public class Jeclipper extends CommandLineProgram {
+	
+	
 	private static Logger log = LoggerFactory.getLogger(Jeclipper.class);
 
-	
-	
-	/**
-	 * Defaults
+	/*
+	 * Option defaults
 	 */
-	protected static final BarcodePosition DEFAULT_BARCODE_READ_POS = BarcodePosition.BOTH;
-	protected static final Integer DEFAULT_XTRIMLEN = 0;
-	protected static final Integer DEFAULT_ZTRIMLEN = 0;
-	protected static final boolean DEFAULT_ADD_BARCODE_TO_HEADER = true;
-	protected static final String DEFAULT_READ_NAME_REPLACE_CHAR = ":";
+	protected static final Boolean DEFAULT_GZIP_OUTPUTS = true;
+	protected static final Boolean DEFAULT_WRITER_FACTORY_USE_ASYNC_IO = true;
+	protected static final String DEFAULT_READ_NAME_SEPARATOR_CHAR = ":";
 	
-	/**
-	 * when DEFAULT_ADD_BARCODE_TO_HEADER is false, clipped barcodes are written to a specific file which 
-	 * default name is DEFAULT_BARCODE_RESULTFILENAME
+	protected static final boolean DEFAULT_ADD_SEQUENCE_LAYOUT_IN_OUTPUT_FILENAME = false;
+
+	protected static final boolean DEFAULT_ADD_HEADER_LAYOUT_IN_OUTPUT_FILENAME = false;
+
+	protected static final boolean DEFAULT_ADD_LAYOUT_IDX_IN_OUTPUT_FILENAME = true;
+
+	
+	
+	/*
+	 * Common line options
 	 */
-	protected static final String DEFAULT_BARCODE_RESULTFILENAME = "clipped_barcodes.txt"; 
-	protected static final boolean DEFAULT_GZIP_OUTPUTS = true;
 	
+	// input fastq files
+	@Option(shortName="F", 
+			optional = false,
+			printOrder=10,
+			doc="Input fastq file (optionally gzipped)",
+			minElements = 1	
+			)
+	public List<File> FASTQ;
 	
-	
-	/**
-	 * test mode : tell the code to stop as soon as the doWork() is called i.e. allows to test the parsing in order to check 
-	 * the status after parsing.
+	//Read layouts 
+	@Option(shortName="RL", optional = false,
+			printOrder=30,
+			doc="Describes the read layout(s) e.g. 'RL=<BARCODE1:6><SAMPLE:x>' of input fastq file(s). "+
+			"The input fastq files and read layouts are mached up by order on the command line.\n" +
+			"Read layouts are only needed for complex layouts but one must provide read layouts for ALL or NONE of the input fastq files.\n"+
+			"Read layouts are made of <UMIn:X>, <BARCODEn:X>, <SAMPLEn:X> blocks to describe blocks of type UMI, BARCODE or SAMPLE with : \n "+
+			"   * 'n' the unique block index (an index must be unique across all read layouts for each index or each block type), use the same"+
+			" index to specify redundant blocks e.g. use <BARCODE1:6> in two different layouts to specify that the barcode found in both reads are the same\n"+
+			"   * 'X' : either a number indicating the length of the UMI, BARCODE or SAMPLE block or a negative number e.g. -2 to specify the last 2 bases"+
+			" should be ignored/clipped) or the letter 'x' to specify to take the sequence till the end of read. Importantly, the 'x' or negative length shotcut "+
+			"can only be used in the last block of a read layout (i.e. <BARCODE1:x><SAMPLE1:20> is not allowed)\n\n"
+				)
+	public List<String> READ_LAYOUT;
+
+	/*
+	 * Final ReadLayout created from READ_LAYOUT or defaults if READ_LAYOUT is not given 
 	 */
-	protected boolean TEST_MODE_STOP_AFTER_PARSING = false;
+	ReadLayout[] readLayouts = null;
 	
-
-
-	@Option(shortName="F1", optional = false, 
-			printOrder=10, 
-			doc="Input fastq file (optionally gzipped) for single end data, or first read in paired end data."
+	//output layouts
+	@Option(shortName="OL", optional = false,
+			printOrder=40,
+			doc="Describes the output file layout(s) using the slots defined in read layouts and ':' to delimitate three parts e.g. 'OL=1:<BARCODE1><UMI1><UMI2>:<SAMPLE1>' : \n" +
+					"\t"+"1.The number in the first part (i.e. from '1:' above) is the output file index and it must be unique across all 'OL' inputs. "+
+					      "Inferred from order in comamnd line when not given\n"+
+					"\t"+"2.The second part (i.e. '<BARCODE1><UMI1><UMI2>' above) is the read header layout ; when writing multiple UMI and BARCODE slots "+
+					"in output read headers, these are always separated with the RCHAR (':' by defaults).\n"+
+					"\t"+"3.The third part (i.e. '<SAMPLE1>' above) is the read sequence layout.\n"
 			)
-	public File FASTQ_FILE1;
-
-	@Option(shortName="F2", optional = true, 
-			printOrder=20, 
-			doc="Input fastq file (optionally gzipped) for the second read of paired end data."
-			)
-	public File FASTQ_FILE2 = null;
-
-	/**
-	 * Are we running SE or PE ? Option set at cmd line parsing time
-	 */
-	protected boolean RUNNING_PAIRED_END = false;
-
+	public List<String> OUTPUT_LAYOUT;
 	
-	@Option(shortName = "LEN", optional = false, 
-			printOrder=30, 
-			doc = "Length of the barcode sequences. When BARCODE_READ_POS == BOTH, two distinct" +
-					" lengths can be provided using the syntax LEN=X:Z where X and Z are 2 integers representing" +
-					" the barcode length for read_1 and read_2 respectively.\n"
-			)
-	public String BCLEN=null ; //BCLEN parsed to set bclen1 and bclen2
-	protected Integer BCLEN_1 = 0;
-	protected Integer BCLEN_2 = 0;
+	@Option(shortName="WQ", optional = true,
+			printOrder=41,
+			doc="Should quality string also be injected in read names. Only applies to READBAR and UMI described in the read name slot of output layout \n"+
+			"If turned on, the quality string is translated into 2 digits number and a e.g. UMI will look like\n"+
+					"\t"+" '...:ATGCAT333423212322:...' instead of '...:ATGCAT:...'\n"+
+			"This option is particularly useful with the retag module that knows how to extract quality numbers into BAM tags."
+				)
+	public boolean WITH_QUALITY_IN_READNAME = false;
 	
-	@Option(shortName="BPOS", optional = true, 
-			printOrder=40, 
-			doc="Reads containing the sequence (i.e. UMIs) to clip:\n"
-					+ "* READ_1 (beginning of read from FASTQ_FILE_1),\n"
-					+ "* READ_2 (beginning of read from FASTQ_FILE_2),\n"
-					+ "* BOTH (beginning of both reads).\n"
-					+ "Automatically set to READ_1 in single end mode and BOTH in paired end mode. "
-					+ "Actually not relevant for single end data\n"
-			)
-	public BarcodePosition BARCODE_READ_POS = DEFAULT_BARCODE_READ_POS ;
-
-
-	@Option(shortName="ADD", optional = false, 
-			printOrder=50, 
-			doc="Should clipped UMIs be added to the read header (at the end); "
-					+ "apply to both barcodes when BPOS=BOTH.\n"
-					+"\t"+"If ADD=true, the string ':barcode' is added at the end of the read header with " 
-					+"a ':' added only if current read header does not end with ':'.\n"
-					+"\t"+"If both reads of the pair contains a UMI (i.e. BARCODE_READ_POS == BOTH), " 
-					+"the UMI from the second read is also added to the read header. \n"
-					+ "\t Else, the header of the read without UMI receives the UMI from the other read.\n"
-					+"\t"+"For example :\n"
-					+"\t"+"\t" +"'@D3FCO8P1:178:C1WLBACXX:7:1101:1836:1965 2:N:0:'\n"
-					+"\t" +"becomes\n"
-					+"\t"+"\t" +"'@D3FCO8P1:178:C1WLBACXX:7:1101:1836:1965 2:N:0:BARCODE'\n"
-			)
-	public boolean ADD_BARCODE_TO_HEADER  = DEFAULT_ADD_BARCODE_TO_HEADER;
-
-	@Option(shortName = "RCHAR", optional = true,
-			printOrder=70,
-			doc="Replace spaces in read name/header using provided character.\n"
-					+"This is needed when you need to retain ADDed barcode in read name/header " 
-					+"during mapping as everything after space in read name is usually clipped in BAM files.\n" 
-					+"For example, with RCHAR=':' :\n"
-					+"\t"+"\t" +"'@D3FCO8P1:178:C1WLBACXX:7:1101:1836:1965 1:N:0:'\n"
-					+"\t" +"becomes\n"
-					+"\t"+"\t" +"'@D3FCO8P1:178:C1WLBACXX:7:1101:1836:1965:1:N:0:BARCODE'\n"
-			)
-	public String READ_NAME_REPLACE_CHAR = DEFAULT_READ_NAME_REPLACE_CHAR;
 	
-	@Option(shortName="SAME_HEADERS", optional = true,
-			printOrder=60,
-			doc= "Makes sure headers of both reads of a pair are identical.\n"
-					+ "Read name (or headers) will follow the pattern (for both reads of a pair) :\n"
-					+ "\t'@D3FCO8P1:178:C1WLBACXX:7:1101:1836:1965 CLIPPED_SEQ_FROMREAD1:CLIPPED_SEQ_FROMREAD2 \n"
-					+ "This option only makes sense in paired end mode and ADD=true.Some (if not all) mappers will indeed complain when "
-					+ "read headers of a read pair are not identical.\n"
-					+ "When SAME_HEADERS=FALSE and the RCHAR is used, read headers look like this :\n"
-					+ "\t\tHISEQ:44:C6KC0ANXX:5:1101:1491:1994:1:N:0:TGGAGTAG\n"
-					+ "\t\tHISEQ:44:C6KC0ANXX:5:1101:1491:1994:3:N:0:CGTTGTAT\n"
-					+ "SAME_HEADERS=true will instead generates the following identical header for both reads :\n"
-					+ "\tHISEQ:44:C6KC0ANXX:5:1101:1491:1994:TGGAGTAG:CGTTGTAT\n"
-					+ "Note that we also clipped the useless '1:N:0' amd '3:N:0' as they also result in different headers\n"
-					+ "Important : this option will force RCHAR=: UNLESS you specify RCHAR=null ; in which case a space will be preserved ie : \n"
-					+ "\tHISEQ:44:C6KC0ANXX:5:1101:1491:1994 TAGAACAC:TGGAGTAG:CGTTGTAT"
-					
+	@Option(shortName="OWID",
+			optional = true,
+			printOrder=42,
+			doc="Should the output layout number (output layout first slot) be injected in the filename ?\n"+
+			    "Only used in absence of explicit file names in the barcode file.\n"
 			)
-	public boolean ENSURE_IDENTICAL_HEADER_NAMES  = true;
+	protected boolean ADD_LAYOUT_IDX_IN_OUTPUT_FILENAME = DEFAULT_ADD_LAYOUT_IDX_IN_OUTPUT_FILENAME;
+
+	@Option(shortName="OWHL",
+			optional = true,
+			printOrder=44,
+			doc="Should the output layout used for the read name (output layout second slot,in short format) be injected in the filename ? "+
+			    "When true, each ouput file name contains e.g. '_B1U1' for OL='1:<BARCODE1><UMI1>:<SAMPLE1>'  \n"+
+			    "Only used in absence of explicit file names in the barcode file.\n"
+			)
+	protected boolean ADD_HEADER_LAYOUT_IN_OUTPUT_FILENAME = DEFAULT_ADD_HEADER_LAYOUT_IN_OUTPUT_FILENAME;
 
 	
-	@Option(shortName = "XT", optional = true,
-			printOrder=80,
-			doc = "Optional extra number of base(s) to be trimmed right after the barcode. These extra bases are not added to read headers.\n" +
-					"When running paired-end, two distinct values can be given using the syntax XT=X:Z where X and Z are 2 integers" +
-					" to use for read_1 and read_2 respectively. Note that even when BPOS=READ_1 or BPOS=READ_2, a X:Y synthax can be given to " +
-					"trim the read w/o barcode to end up with reads of identical length (note that this can also be operated using ZT). " +
-					"If a unique value is given, e.g. XT=1, while running paired-end the following rule applies :\n " +
-					"\t(1) BPOS=READ_1 or BPOS=READ_2, no trim is applied at the read w/o barcode \n"
-					+ "\t(2) BPOS=BOTH, the value is used for both reads.\n"+
-					"Note that XT=null is like XT=0.\n"
+	@Option(shortName="OWSL",
+			optional = true,
+			printOrder=46,
+			doc="Should the output layout used for the read sequence (output layout third slot, in short format) be injected in the filename ?"+
+				"When true, each ouput file name contains e.g. '_S1' for OL='1:<BARCODE1><UMI1>:<SAMPLE1>'  \n"+
+			    "Only used in absence of explicit file names in the barcode file.\n"
 			)
-	public String XTRIMLEN= DEFAULT_XTRIMLEN.toString() ; //must be further inspected to set XTRIMLEN_1 & XTRIMLEN_2
-	public Integer XTRIMLEN_1=null ; // we do not set defaults as having null value here is part of the reasoning !!
-	public Integer XTRIMLEN_2=null ; // we do not set defaults as having null value here is part of the reasoning !!
-
-	@Option(shortName = "ZT", optional = true,
-			printOrder=90,
-			doc = "Optional extra number of bases to be trimmed from the read end i.e. 3' end. These extra bases are not added to read headers.\n" +
-					"When running paired-end, two distinct values can be given here using the syntax ZT=X:Z where X and Z are 2 integers" +
-					" to use for read_1 and read_2 respectively. Note that even when BPOS=READ_1 or BPOS=READ_2, a X:Y synthax can be given to " +
-					"trim the read w/o barcode as to end up with reads of the same length (note that this can also be operated using XT). " +
-					"Note that if a single value is passed, the value always applies to both reads in paired-end mode without further consideration.\n"
-			)
-	public String ZTRIMLEN=DEFAULT_ZTRIMLEN.toString() ;
-	public Integer ZTRIMLEN_1=DEFAULT_ZTRIMLEN ;
-	public Integer ZTRIMLEN_2=DEFAULT_ZTRIMLEN ;
+	protected boolean ADD_SEQUENCE_LAYOUT_IN_OUTPUT_FILENAME = DEFAULT_ADD_SEQUENCE_LAYOUT_IN_OUTPUT_FILENAME;
 
 	
 	/*
-	 * More general options below
+	 * Final FastqWriterLayout created from OUTPUT_LAYOUT or defaults if OUTPUT_LAYOUT is not given 
 	 */
-	@Option(shortName = "OF1", optional = true,
-			printOrder=100,
-			doc="Optional result file name for Read_1 fastq file (i.e. F1) . Default name is built after input file name with the following pattern : <inputfile_name>_clipped.<inputfile_extension>[.gz]"
-			+"\nCan either be a name (in which case the file will be created in the output dir) or a full path.\n"
-			)
-	public String RESULT_FILENAME_1 = null;
-	File RESULT_FASTQ_FILE1 = null;  
-
-	@Option(shortName = "OF2", optional = true,
-			printOrder=110,
-			doc="Optional result file name for Read_2 fastq file (i.e. F2) . Default name is built after input file name with the following pattern : <inputfile_name>_clipped.<inputfile_extension>[.gz]"
-			+"\nCan either be a name (in which case the file will be created in the output dir) or a full path.\n"
-			)
-	public String RESULT_FILENAME_2 = null;
-	File RESULT_FASTQ_FILE2 = null;  
-
-	@Option(shortName = "BF", optional = true,
-			printOrder=200,
-			doc="Optional file name where to write clipped barcodes, default name is "+DEFAULT_BARCODE_RESULTFILENAME+".\n"
-					+"Can either be a name (in which case the file will be created in the output dir) or a full path.\n"
-					+"This file is automatically created if ADD=FALSE i.e. even if this option is not provided by user (and always created if this option is given).\n"
-					+ "File format is tab delimited with : \n"
-					+ "\t read header (col 1), barcode from read_1 (col 2), barcode quality from read_1 (col 2) and barcode + quality from read_2 (col 4 and 5 respectively) when relevant.\n"
-
-			)
-	public String BARCODE_RESULT_FILENAME = null;
-	File barcodeFile = null; //final File object to use with METRICS_FILE_NAME, set in cmdline validation 
-
+	FastqWriterLayout [] outLayouts = null;
 	
+		
 	@Option(shortName = "O", optional = true,
-			printOrder=130, 
-			doc="Where to write output file(s). By default, these are written in running directory.\n")
+			printOrder=90,
+			doc="Output directory. By default, output files are written in running directory.\n")
 	public File OUTPUT_DIR = null;
 
 	@Option(optional = true,
-			printOrder=140,
-			doc="Allows overwriting existing files.\n" 
+			printOrder=100,
+			doc="Allows to overwrite existing files (system rights still apply).\n"
 			)
 	public boolean FORCE = false;
 	
 	
 	@Option(shortName="GZ", optional = true,
-			printOrder=150,
-			doc="Compress output s_l_t_barcode.txt files using gzip and append a .gz extension to the filenames.\n")
+			printOrder=110,
+			doc="Compress output files using gzip.\n"
+			)
 	public boolean GZIP_OUTPUTS = DEFAULT_GZIP_OUTPUTS;
 
+	
+	@Option(shortName = "SEP", optional = true,
+			printOrder=170,
+			doc="Separator character used to concatenate barcodes and umis in read header\n"
+			)
+	public String READ_NAME_SEPARATOR_CHAR = DEFAULT_READ_NAME_SEPARATOR_CHAR;
+	
+	@Option(shortName="V", optional = true,
+			printOrder=190,
+			doc="A value describing how the quality values are encoded in the fastq files.  Either 'Solexa' for pre-pipeline 1.3 " +
+					"style scores (solexa scaling + 66), 'Illumina' for pipeline 1.3 and above (phred scaling + 64) or 'Standard' for phred scaled " +
+					"scores with a character shift of 33.  If this value is not specified (or 'null' is given), the quality format is assumed to be will the 'Standard' for phred scale.\n"
+			)
+	public FastqQualityFormat QUALITY_FORMAT = null;
 
-	public Jeclipper(){
-		super();
+	
+	@Option(shortName="TEST", optional = true,
+			printOrder=210,
+			doc="test mode ie code execution stops right before read demultiplexing starts btu after comamnd line validation"
+			)
+	protected static boolean TEST_MODE_STOP_AFTER_PARSING = false;
+
+	@Option(optional=true,
+			printOrder=220,
+			doc="Change the default extension of created fastq files, eg 'fastqsanger'. By default uses the "
+					+ "file extension from input fastq file. If result file names are given in the barcode file, "
+					+ "this option is only used to adapt the unassigned file names. When using compression, a .gz is "
+					+ "always appended to file names and should not be specified in FASTQ_FILE_EXTENSION i.e. \n"
+					+ "use FASTQ_FILE_EXTENSION=fastq and NOT FASTQ_FILE_EXTENSION=fastq.gz\n"
+			)
+	public String FASTQ_FILE_EXTENSION = null;
+	
+
+	@Option(shortName="ASYNC", optional = true,
+			printOrder=230,
+			doc="Use one thread per Fastq Writer.\n")
+	public boolean WRITER_FACTORY_USE_ASYNC_IO = DEFAULT_WRITER_FACTORY_USE_ASYNC_IO;
+
+		
+	
+	/*
+	 * The output files, one for each output layout
+	 */
+	List<File> outputFiles = new ArrayList<File>();
+	
+	
+	
+	
+	@Override
+	protected String[] customCommandLineValidation() {
+		
+		/*
+		 * Check the input fastq
+		 */
+		Set<String> _names = new TreeSet<String>();
+		for(File f : FASTQ){
+			if(!f.exists() || !f.canRead())
+				return new String[]{"Input FASTQ file does not exist OR cannot be read, please check: "+f.getAbsolutePath()};
+			
+			if(_names.contains(f.getAbsolutePath())){
+				return new String[]{"Found twice the same file in FASTQ options: "+f.getAbsolutePath()};
+			}
+			_names.add(f.getAbsolutePath());
+		}
+			
+		
+		/*
+		 * Validate O
+		 * if not given, init to current dir else ensure the dir exists
+		 * After this validation OUTDIR is SET 
+		 */
+		if(OUTPUT_DIR == null){
+			OUTPUT_DIR = new File(System.getProperty("user.dir"));
+		}
+
+		if(!OUTPUT_DIR.exists()){
+			log.info("Attempting to create output directory : "+OUTPUT_DIR.getAbsolutePath());
+			try{
+				FileUtil.checkWritableDir(OUTPUT_DIR, true);
+			}catch(Exception e){
+				return new String[]{"Failed to create output directory :"+OUTPUT_DIR.getAbsolutePath()};
+			}
+		}
+		
+		
+		/*
+		 * Check quality format
+		 */
+		if (QUALITY_FORMAT == null) { // we assume it s Standard
+			FastqReader [] readers = new FastqReader[FASTQ.size()];
+			int i = 0;
+			for(File f : FASTQ){
+				readers[i++] = new FastqReader(f);
+			}
+			QUALITY_FORMAT = JeUtils.determineQualityFormat(readers, FastqQualityFormat.Standard);
+			log.info( String.format("Auto-detected quality encoding format as '%s'. Please set V option explicitely if not correct.", QUALITY_FORMAT) );
+		} else {
+			log.info(String.format("Quality encoding format set to %s by user.", QUALITY_FORMAT));
+		}
+		
+		
+		/*
+		 * parse read layout, we must have one per input FASTQ
+		 * 
+		 */
+		if(READ_LAYOUT.size() != FASTQ.size() )
+			return new String[]{"Got "+READ_LAYOUT.size()+" read layouts for "+FASTQ.size()+" FASTQ files. You must provide as many read layouts as input FASTQ files."};
+
+		log.debug("init ReadLayouts command line... ");
+
+		readLayouts = new ReadLayout[READ_LAYOUT.size()];
+		for (int j = 0; j < READ_LAYOUT.size(); j++) {
+			String _rl = READ_LAYOUT.get(j);
+			try{
+				readLayouts[j] = new ReadLayout(_rl);
+			}catch(Exception e){
+				log.error(ExceptionUtil.getStackTrace(e));
+				return new String[]{e.getMessage()};
+			}
+		}
+		
+		
+		log.debug("ReadLayouts are valid.");
+		
+		/*
+		 * Process output layout 
+		 */
+		if(OUTPUT_LAYOUT == null || OUTPUT_LAYOUT.isEmpty()){
+			return new String[]{"Output layout(s) must be provided."};
+		}
+
+		log.debug("init output format layout from comamnd line... ");
+
+		outLayouts = new FastqWriterLayout[OUTPUT_LAYOUT.size()];
+		
+		for (int j = 0; j < OUTPUT_LAYOUT.size(); j++) {
+			String _ol = OUTPUT_LAYOUT.get(j);
+			try{
+				String [] parts = _ol.split(DEFAULT_READ_NAME_SEPARATOR_CHAR);
+				if(parts.length > 3)
+					return new String[]{"Invalid output layout. A maximum of three ':'-delimited parts are expected while "+parts.length+" are found in "+_ol};
+
+				int olIndex = j+1;
+				String headerLayout = "";
+				String seqLayout = "";
+
+				switch (parts.length) {
+				case 1:
+					seqLayout = parts[0];
+					break;
+				case 2:
+					headerLayout = parts[0];
+					seqLayout = parts[1];
+					break;
+				case 3:
+					olIndex = Integer.parseInt(parts[0]);
+					headerLayout = parts[1];
+					seqLayout = parts[2];
+					break;
+				}
+				
+				/*
+				 * here BARCODE (or B) always mean READBAR (or R). We need to convert BARCODE to READBAR to
+				 *  make sure the FastqWriterLayout bahaves properly
+				 */
+				outLayouts[j] = new FastqWriterLayout(seqLayout, headerLayout, readLayouts, WITH_QUALITY_IN_READNAME, READ_NAME_SEPARATOR_CHAR, true, this.QUALITY_FORMAT);
+			}catch(Exception e){
+				log.error(ExceptionUtil.getStackTrace(e));
+				return new String[]{e.getMessage()};
+			}
+		}
+
+		log.debug("Output format layouts are valid.");
+		
+		/*
+		 * 
+		 * Check one of  
+		 * ADD_SEQUENCE_LAYOUT_IN_OUTPUT_FILENAME, 
+		 * ADD_HEADER_LAYOUT_IN_OUTPUT_FILENAME, 
+		 * ADD_LAYOUT_IDX_IN_OUTPUT_FILENAME 
+		 * 
+		 * is true 
+		 * 
+		 */
+		
+		if(!ADD_SEQUENCE_LAYOUT_IN_OUTPUT_FILENAME && !ADD_HEADER_LAYOUT_IN_OUTPUT_FILENAME && !ADD_LAYOUT_IDX_IN_OUTPUT_FILENAME){
+			return new String[]{"At least one of 'OWID', 'OWHL' or 'OWSL' must be true"};
+		}
+		
+		/*
+		 * Properly init output files for samples
+		 * Check if file name was provided in barcode file else create default names
+		 */
+		//no file name, init from output layouts
+		log.debug("  initializing output file from output layouts ...");
+		
+		for (int i = 0; i < outLayouts.length; i++) {
+			FastqWriterLayout ol = outLayouts[i];
+			String fname = generateOutputFileName(i, ol);
+
+			outputFiles.add( new File(OUTPUT_DIR , fname) );
+		}
+
+		log.debug("  output file names created, now checking if they already exist ");
+		
+		for (File en : outputFiles) {
+			try{
+				checkFilesDoNotAlreadyExist(en, FORCE);
+			}catch(Jexception e){
+				return new String[]{e.getMessage()};
+			}
+		}
+		log.debug("out file path fully validated.");
+		
+		
+		
+		log.debug("Validation ended without error");
+		return null; //do not return an empty array
 	}
 
 
 	/**
-	 * 
-	 * @return null if command line is valid.  If command line is invalid, returns an array of error message
-	 *         to be written to the appropriate place.
+	 * @param i
+	 * @param ol
+	 * @return
 	 */
-	@Override
-	protected String[] customCommandLineValidation() {
-		final ArrayList<String> messages = new ArrayList<String>();
+	protected String generateOutputFileName(int i, FastqWriterLayout ol) {
+		String fname = "out" + 
+				( ADD_SEQUENCE_LAYOUT_IN_OUTPUT_FILENAME ? "_" +ol.getReadSequenceLayout() : "" )+
+				( ADD_HEADER_LAYOUT_IN_OUTPUT_FILENAME ? "_" +ol.getReadNameLayout() : "" )+
+				( ADD_LAYOUT_IDX_IN_OUTPUT_FILENAME ? "_" + (i+1) :"" )+
+				"." +(FASTQ_FILE_EXTENSION == null ? "txt" : FASTQ_FILE_EXTENSION) +
+				(GZIP_OUTPUTS ? ".gz" : "") ;
+		return fname;
+	}
+	
+
+	/**
+	 * Checks if the file exists and can be overwritten. 
+	 * 
+	 * @param file
+	 * @param overwrite
+	 * @throws Jexception if the file exists and (1) overwrite is false or (2) overwrite is true and file cannot be deleted
+	 */
+	private void checkFilesDoNotAlreadyExist(File file, boolean overwrite) throws Jexception{
+		if(file.exists() && !overwrite)
+			throw new Jexception("Ouput file already exists : "+ file.getAbsolutePath()+"\nPlease delete file(s) first or use FORCE=true");
+		else if(file.exists() && overwrite && !file.delete())
+			throw new Jexception("Ouput file already exists but could not be deleted (file permission issue most likely): "+ file.getAbsolutePath()+"\nPlease delete file(s) first manually ro adapt file permissions.");
+	}
 
 
-		/*
-		 * Check mandatory input files
-		 */
-		if(!FASTQ_FILE1.exists()){
-			messages.add("FASTQ_FILE1 does not exist :"+FASTQ_FILE1.getAbsolutePath());
-		}else if(!FASTQ_FILE1.canRead()){
-			messages.add("Unsufficient rights to read FASTQ_FILE1 :"+FASTQ_FILE1.getAbsolutePath());
+	private void checkFilesDoNotAlreadyExist(List<File> files, boolean overwrite) {
+		for (File file : files) {
+			checkFilesDoNotAlreadyExist(file, overwrite);
 		}
-		
-		if(FASTQ_FILE2 != null){
-			RUNNING_PAIRED_END = true;
-
-			if(!FASTQ_FILE2.exists()){
-				messages.add("FASTQ_FILE2 does not exist :"+FASTQ_FILE2.getAbsolutePath());
-			}else if(!FASTQ_FILE2.canRead()){
-				messages.add("Unsufficient rights to read FASTQ_FILE2 :"+FASTQ_FILE2.getAbsolutePath());
-			}
-			
-			if(FASTQ_FILE2.getAbsolutePath().equals(FASTQ_FILE1.getAbsolutePath())){
-				messages.add("FASTQ_FILE1 and FASTQ_FILE2 are the same file !");
-			}
-		}
-		
-		if(BARCODE_READ_POS == BarcodePosition.NONE){
-			messages.add("Jeclipper cannot run with BPOS=NONE !");
-		}
-		
-		if(!RUNNING_PAIRED_END){
-			//force to the only option
-			BARCODE_READ_POS=BarcodePosition.READ_1;
-		}
-
-		
-		/*
-		 * parse options that can have 'X:Y' syntax
-		 * We first set these options blindly, later check is performed for those options that need it ie:
-		 * - BCLEN* => make sure to have non 0 values at ends with barcodes and 0 values at ends w/o barcodes
-		 * - XTRIMLEN => must be further inspected i.e. make sure we don t have a '1' for ends w/o 
-		 * barcodes UNLESS explicitly set by user in the form X:Y 
-		 */
-		int [] arr = null;
-		arr = setOption("BCLEN", BCLEN,  messages, true);
-		if(arr.length == 2){ 
-			//BCLEN was given in cmd line as it is null by default
-			if(BARCODE_READ_POS != BarcodePosition.READ_2){
-				BCLEN_1 = arr[0];
-				log.debug("setting BCLEN_1 to "+BCLEN_1+" (BCLEN="+BCLEN);
-			}
-			if(BARCODE_READ_POS != BarcodePosition.READ_1){
-				BCLEN_2 = arr[1];
-				log.debug("setting BCLEN_2 to "+BCLEN_2+" (BCLEN was "+BCLEN);
-			}
-		}else{
-			//BCLEN was NOT given in cmd line which is not possible since it is mandatory
-		}
-		
-		
-		
-		
-		arr = setOption("XTRIMLEN", XTRIMLEN,  messages, false);
-		if(arr.length == 2){
-			XTRIMLEN_1 = arr[0];
-			XTRIMLEN_2 = arr[1];
-		}
-		
-		arr = setOption("ZTRIMLEN", ZTRIMLEN, messages, false);
-		if(arr.length == 2){
-			ZTRIMLEN_1 = arr[0];
-			ZTRIMLEN_2 = arr[1];
-		}
-		
-		//check XTRIMLEN 
-		if(RUNNING_PAIRED_END && BARCODE_READ_POS != BarcodePosition.BOTH){
-			//set XTRIMLEN to 0 for the end w/o barcode UNLESS set by user in command line
-			if(!XTRIMLEN.contains(":")){
-				//user did not set 2 values => make it 0 
-				if(BARCODE_READ_POS == BarcodePosition.READ_1)
-					XTRIMLEN_2 = 0;
-				else
-					XTRIMLEN_1 = 0;
-			}
-		}
-		
-		if(READ_NAME_REPLACE_CHAR!=null){
-			if(!org.embl.cg.utilitytools.utils.StringUtil.isValid(READ_NAME_REPLACE_CHAR)){
-				messages.add("The option READ_NAME_REPLACE_CHAR is empty, for special characters like ';', you might need to escape them with a backslash.");
-			}
-			log.debug("RCHAR is '"+READ_NAME_REPLACE_CHAR+"'");
-		}
-		
-		
-		//only continue if all seems ok 
-		if(messages.isEmpty()){
-
-			if(OUTPUT_DIR == null){
-				OUTPUT_DIR = new File(System.getProperty("user.dir"));
-			}
-			/*
-			 * check output dir
-			 */
-			if(!OUTPUT_DIR.exists()){
-				log.info("Attempting to create output directory : "+OUTPUT_DIR.getAbsolutePath());
-				try{
-					FileUtil.checkWritableDir(OUTPUT_DIR, true);
-				}catch(Exception e){
-					//creation failed 
-					messages.add("Creation of result directory failed! Please check you have sufficient privileges to create this dir.");
-				}
-			}
-
-
-			/*
-			 * Does user want the clipped barcodes in the read headers or in a separate file ?  
-			 * We create one automatically if ADD_BARCODE_TO_HEADER is false
-			 */
-			if(!ADD_BARCODE_TO_HEADER || BARCODE_RESULT_FILENAME!=null){
-				String fname = DEFAULT_BARCODE_RESULTFILENAME;
-				if(BARCODE_RESULT_FILENAME != null) 
-					fname = BARCODE_RESULT_FILENAME;
-				if(GZIP_OUTPUTS){
-					fname += fname.endsWith("gz") ? "":".gz";
-				}
-
-				barcodeFile = setFile(fname);
-			}
-
-			if(!StringUtils.isBlank(RESULT_FILENAME_1)){
-				RESULT_FASTQ_FILE1 = setFile(this.RESULT_FILENAME_1);
-			}else{
-				String defaultname = FileUtil.removeExtension(FASTQ_FILE1.getName()) + "_clipped."+ FileUtil.getExtensionZipOrGZIPSafe(FASTQ_FILE1.getName()) ;
-				if(GZIP_OUTPUTS){
-					defaultname += defaultname.endsWith("gz") ? "":".gz";
-				}
-				RESULT_FASTQ_FILE1 = setFile( defaultname );
-			}
-
-			//check the file does not exist yet
-			if(RESULT_FASTQ_FILE1.exists()){
-				if(!FORCE){
-					String mess = "\nOutput file already exists : " + RESULT_FASTQ_FILE1.getAbsolutePath() +
-							"\nPlease use FORCE=true to overwrite existing file(s).";
-					messages.add(mess);
-				}else if(!RESULT_FASTQ_FILE1.delete()){
-					String mess = "Failed to remove existing output file (FORCE=true) : " + RESULT_FASTQ_FILE1.getAbsolutePath() +
-							"\nPlease check you have enought privileges to perform this operation.";
-					messages.add(mess);
-				}
-			}
-
-			if(RUNNING_PAIRED_END){
-				if(RESULT_FILENAME_2 != null){
-					RESULT_FASTQ_FILE2 = setFile(this.RESULT_FILENAME_2);
-				}else{
-					String defaultname = FileUtil.removeExtension(FASTQ_FILE2.getName()) + "_clipped."+ FileUtil.getExtensionZipOrGZIPSafe(FASTQ_FILE2.getName()) ;
-					if(GZIP_OUTPUTS){
-						defaultname += defaultname.endsWith("gz") ? "":".gz";
-					}
-					RESULT_FASTQ_FILE2 = setFile( defaultname );
-				}
-
-				//check the file does not exist yet
-				if(RESULT_FASTQ_FILE2.exists()){
-					if(!FORCE){
-						String mess = "\nOutput file already exists : " + RESULT_FASTQ_FILE2.getAbsolutePath() +
-								"\nPlease use FORCE=true to overwrite existing file(s).";
-						messages.add(mess);
-					}else if(!RESULT_FASTQ_FILE2.delete()){
-						String mess = "Failed to remove existing output file (FORCE=true) : " + RESULT_FASTQ_FILE2.getAbsolutePath() +
-								"\nPlease check you have enought privileges to perform this operation.";
-						messages.add(mess);
-					}
-				}
-			} 
-		}
-		
-		if(messages.isEmpty()){
-			return null;
-		}
-		return messages.toArray(new String[messages.size()]);
 	}
 
 
 
+
+	/**
+	 * Checks if a given file name looks like a path
+	 * @param fname
+	 * @return
+	 */
+	protected boolean looksLikeAPath(String fname) {
+		
+		if(fname.contains(File.separator)){
+			File f = new File(fname);
+			return f.getParentFile().exists() && f.getParentFile().isDirectory();
+		}
+		return false;
+	}
+
 	
+	
+	private JemultiplexerFastqWriterFactory fastqFactory;
+
+
 	@Override
 	protected int doWork() {
 		
-		log.info("[options valid, start processing]");
+		log.debug("Launching clipping...");
 		
-		if(TEST_MODE_STOP_AFTER_PARSING)
-			return 0;
-		
-	
-		/*
-		 * prepare FASTQ file writers
-		 */
-		JemultiplexerFastqWriterFactory fastqFactory = new JemultiplexerFastqWriterFactory();
-		fastqFactory.setUseAsyncIo(false);
-
-		/*
-		 * init writers for output files
-		 * at this point, the file path has been already set and the overwrite status checked (if needed)
-		 * we can blindly init writers 
-		 */
-		FastqWriter fw1 = fastqFactory.newWriter(RESULT_FASTQ_FILE1, GZIP_OUTPUTS, CREATE_MD5_FILE);
-		log.debug("[OK] writer on result file "+RESULT_FASTQ_FILE1.getAbsolutePath());
-		FastqWriter fw2 = null;
-		if(RUNNING_PAIRED_END){
-			fw2 = fastqFactory.newWriter(RESULT_FASTQ_FILE2, GZIP_OUTPUTS, CREATE_MD5_FILE);
-			log.debug("[OK] writer on result file "+RESULT_FASTQ_FILE2.getAbsolutePath());
-		}	
-		
-		
-		
-		/*
-		 * Should we init a barcode file ?
-		 */
-		PrintWriter barcodeW = null;
-		if( ! ADD_BARCODE_TO_HEADER ){
-			try{
-				barcodeW = GZIP_OUTPUTS ? new PrintWriter( new GZIPOutputStream(new FileOutputStream(barcodeFile)) ) : new PrintWriter(barcodeFile);
-			} catch (Exception e) {
-				log.error(ExceptionUtil.getStackTrace(e));
-				throw new RuntimeException(e);
-			}
-			
-			String[] headers = new String []{"READ_HEADER", "BC_SEQ_READ1", "BC_QUAL_READ1"};
-			if(RUNNING_PAIRED_END)
-				headers = new String []{"READ_HEADER", "BC_SEQ_READ1", "BC_QUAL_READ1", "BC_SEQ_READ2", "BC_QUAL_READ2"};
-
-			barcodeW.println(org.embl.cg.utilitytools.utils.StringUtil.mergeArray(headers,"\t"));
-		}
-
-		FastqReader fqr1 = new FastqReader(FASTQ_FILE1);
-		Iterator<FastqRecord> it1 = fqr1.iterator();
-		FastqReader fqr2 = null;
-		Iterator<FastqRecord> it2 = null;
-
-		
-		if(RUNNING_PAIRED_END){
-			fqr2 = new FastqReader(FASTQ_FILE2);
-			it2 = fqr2.iterator();
-		}
-
-		
-		/*
-		 * Read files and write
-		 */
-		int cnt = 0; //read pair counter
-		while(it1.hasNext()){
-			FastqRecord r1 = it1.next();
-			FastqRecord r2 = null; 
-			if(RUNNING_PAIRED_END){
-				r2 = it2.next();
-			}
-			cnt++;
-			if(cnt % (1000*1000) == 0){
-				log.info(cnt+" reads processed");
-
-			}
-
-			/*
-			 * Operate barcode EXTRACTION 
-			 */
-			String s1 = null;
-			String q1 = null;
-			String s2 = null;
-			String q2 = null;
-
-
-			//do we have a barcode at read 1 : yes if SE or PE with BC position != read2 
-			if(!RUNNING_PAIRED_END || BARCODE_READ_POS != BarcodePosition.READ_2){
-				//read 1 has a barcode, extract it
-				s1 = r1.getReadString().substring(0, BCLEN_1).toUpperCase();
-				q1 = r1.getBaseQualityString().substring(0, BCLEN_1);
-				log.debug("Got bc sequence from read1 : "+s1);
-			}
-			//do we have a barcode at read 2 ? => yes is PE with BC position != read1 
-			if(RUNNING_PAIRED_END && BARCODE_READ_POS != BarcodePosition.READ_1){
-				s2 = r2.getReadString().substring(0, BCLEN_2);
-				q2 = r2.getBaseQualityString().substring(0, BCLEN_2);
-				log.debug("Got bc sequence from read2 : "+s2);
-			}
-
+		try{
 			
 			/*
-			 * write to barcode file if requested
+			 * Open writers for all output FASTQ files
+			 *
 			 */
-			if(barcodeW!=null){
-				String [] values = null;
-				if(RUNNING_PAIRED_END){
-					values = new String[]{
-							r1.getReadHeader().split("\\s+")[1], 
-							s1, 
-							q1,
-							s2,
-							q2
-					};
-				}else{
-					values = new String[]{
-							r1.getReadHeader().split("\\s+")[1], 
-							s1, 
-							q1
-					};
+			fastqFactory = new JemultiplexerFastqWriterFactory();
+			fastqFactory.setUseAsyncIo(this.WRITER_FACTORY_USE_ASYNC_IO);
+			//list to hold all sample writers
+			List<FastqWriter> fastqWriters = new ArrayList<FastqWriter>(); 
+
+			for (File _f : outputFiles) {
+				fastqWriters.add(fastqFactory.newWriter(_f, GZIP_OUTPUTS, CREATE_MD5_FILE));
+			}
+				
+			/*
+			 * Open readers on all FASTQ
+			 */
+			List<FastqReader> fastqReaders = new ArrayList<FastqReader>(); //we need to store them to close them at the end
+			List<Iterator<FastqRecord>> fastqFileIterators = new ArrayList<Iterator<FastqRecord>>();
+			for (File fqFile : FASTQ) {
+				FastqReader r = new FastqReader(fqFile);
+				fastqReaders.add(r); 
+				fastqFileIterators.add( r.iterator() );
+			}
+			
+			
+			/*
+			 * Iterate over all records
+			 */
+				
+			//counters
+			Iterator<FastqRecord> mainIterator = fastqFileIterators.get(0);
+			while(mainIterator.hasNext()){
+				//reads next read from all input files
+				FastqRecord[] reads = nextReads(fastqFileIterators);
+			
+				for (int i = 0; i < fastqWriters.size(); i++) {
+					//prepare the output according to output layout
+					log.debug("Writing in output idx "+(i+1));
+					FastqRecord rec = outLayouts[i].assembleRecord( reads , null);
+					fastqWriters.get(i).write(rec);
 				}
-				barcodeW.println(org.embl.cg.utilitytools.utils.StringUtil.mergeArray(values,"\t"));
 			}
 			
-			/*
-			 * write reads to fastq files
-			 */
-			String codeForRead1 = s1;
-			String codeForRead2 = s2;
 			
-			// if ENSURE_IDENTICAL_HEADER_NAMES is true we need to make sure the codes are identical for each read
-			if(RUNNING_PAIRED_END && ADD_BARCODE_TO_HEADER && ENSURE_IDENTICAL_HEADER_NAMES){
-				if(BARCODE_READ_POS == BarcodePosition.BOTH){
-					// merge both code and init both BCLEN_1 and BCLEN_2 to it
-					String merged = s1 + ":" + s2;
-					codeForRead1 = merged;
-					codeForRead2 = merged;
-				}else{
-					// make sure both BCLEN_1 and BCLEN_2 have the value
-					if(BARCODE_READ_POS == BarcodePosition.READ_1){
-						codeForRead2 = s1;
-					}else{
-						codeForRead1 = s2;
-					}
+			//close readers
+			for(FastqReader r : fastqReaders){
+				try {
+					r.close();
+				} catch (Exception e) {
+					// ignore
 				}
-				 
 			}
-			
-			
-			write(r1, BCLEN_1, XTRIMLEN_1, ZTRIMLEN_1, fw1, codeForRead1, ADD_BARCODE_TO_HEADER);
-			if(RUNNING_PAIRED_END){
-				write(r2, BCLEN_2 , XTRIMLEN_2 , ZTRIMLEN_2, fw2, codeForRead2, ADD_BARCODE_TO_HEADER );
+					
+			//close all writers			
+			for (FastqWriter w : fastqWriters) {
+				try {
+					w.close();
+				} catch (Exception e) {
+					// ignore
+				}
 			}
 
+			log.debug("Clipping run ended without warning.");
 			
+		}catch(Exception e){
+			log.error(ExceptionUtil.getStackTrace(e));
+			log.error("\n\n\n\n\nAn error occurred during read clipping, please check the error message before running the process again. \n"+
+			         "Error message was :\n"+e.getMessage());
+			return 1;
 		}
-			
-		//close all writers
-		fw1.close();
-		fqr1.close();
-		if(fw2!=null){
-			fw2.close();
-			fqr2.close();
-		}
-		if(barcodeW!=null) barcodeW.close(); 
-		
-		//all fine
 		return 0;
+	}
+	
+	
+	
+	
+	/**
+	 * check that the indices form a series n(i+1) = n(i) + 1 
+	 * @param ids
+	 * @return return the max index
+	 * @throws Jexception if the indices do not form a series n(i+1) = n(i) + 1 
+	 */
+	protected static int checkIndexSerie(String optionName, Set<Integer> ids)  {
+		Integer min = null;
+		Integer max = null;
+		for (Integer i : ids) {
+			if(min == null){
+				min = i; 
+				max = i;
+				continue;
+			}
+			if(i>max) max = i;
+			if(i<min) min = i;
+		}
+		// starts at 1 ?
+		if(min != 1)
+			throw new Jexception("Indices for "+optionName+" option must start with number 1 (not "+min+")");
 
+		// start at expected number according to id size ?
+		int expectedEnd = min + ids.size() - 1;
+		if(max != expectedEnd){
+			ArrayList<Integer> _ids = new ArrayList<Integer>(ids);
+			Collections.sort(_ids);
+			throw new Jexception("Indices for the "+ids.size()+" "+optionName
+					+" option do not form a continous sequence of integers from 1 to "+expectedEnd+" : "+StringUtil.mergeIntList(_ids,  ","));
+		}
+		
+		return max;
+	}
+	
+	private FastqRecord[] nextReads(
+			List<Iterator<FastqRecord>> fastqFileIterators) {
+		FastqRecord[] reads = new FastqRecord[fastqFileIterators.size()];
+		for (int j = 0; j < fastqFileIterators.size(); j++) {
+			reads[j] = fastqFileIterators.get(j).next();
+		}
+		return reads;
 	}
 
 
 	/**
-	 * @param r the read to write
-	 * @param bcLen the barcode length
-	 * @param xtrim how many extra base should be clipped after the barcode ; 0 or more
-	 * @param writer the writer
-	 * @param barcode the barcode sequence extracted from this read. Note that the caller is responsible to give the 
-	 *  sequence as extracted from the read or the barcode sequence after matching the extracted sequence against list of expected barcode
-	 * @param addBarcodeToHeader whether the barcode should be added to the read header. If true, the string ':barcode' is added 
-	 * with the starting ':' added only if current read header does not end with ':'. For example :
-	 * '@D3FCO8P1:178:C1WLBACXX:7:1101:1836:1965 2:N:0:'
-	 * becomes
-	 * '@D3FCO8P1:178:C1WLBACXX:7:1101:1836:1965 2:N:0:BARCODE'
-	 * @return the trimmed {@link FastqRecord} ; mostly for testing purposes
+	 * get real read length from fastq file (from first read)
+	 * @param file
+	 * @return the read length
 	 */
-	protected FastqRecord write(final FastqRecord r, int bcLen, int xtrim, int ztrim, final FastqWriter writer, String barcode, Boolean addBarcodeToHeader) {
+	private int peekReadLength(File file) {
 		
-		log.debug("Writing read [bcLen="+bcLen+", xtrim="+xtrim+", ztrim="+ztrim+", barcode="+(barcode==null?"NULL":barcode)+", addBarcodeToHeader="+addBarcodeToHeader.toString()+"]");
-	
-		int l = bcLen + xtrim ;
-		
-		String header = r.getReadHeader();
-		
-		if(RUNNING_PAIRED_END && ENSURE_IDENTICAL_HEADER_NAMES && addBarcodeToHeader){
-			//clip off header after space
-			header = r.getReadHeader().split("\\s+")[0]+" "+(barcode!=null?barcode:"");
-			if(READ_NAME_REPLACE_CHAR != null){
-				header = header.replaceAll(" ", READ_NAME_REPLACE_CHAR);
-			}
+		final FastqReader r = new FastqReader(file);
+		FastqRecord rec = null;
+		try {
+			rec = r.iterator().next();
+		} finally {
+			if(r!=null)
+				r.close();
+				
 		}
-		else if(addBarcodeToHeader){
-			header+= (header.endsWith(":")? "":":")+(barcode!=null?barcode:"");
-			if(READ_NAME_REPLACE_CHAR != null){
-				header = header.replaceAll(" ", READ_NAME_REPLACE_CHAR);
-			}
-		}
-		log.debug("will clip "+l+" bases of "+r.getReadString());
-
-		String subseq_trimmed = r.getReadString();
-		String qualstring_trimmed = r.getBaseQualityString();
-		if(ztrim > 0){
-			subseq_trimmed = r.getReadString().substring(l, subseq_trimmed.length() - ztrim) ;
-			qualstring_trimmed = r.getBaseQualityString().substring(l, qualstring_trimmed.length() - ztrim) ;
-		}
-		else{
-			subseq_trimmed = r.getReadString().substring(l) ;
-			qualstring_trimmed = r.getBaseQualityString().substring(l) ;
-		}
-
-		FastqRecord trimmed = new FastqRecord(
-				header,//seqHeaderPrefix
-				subseq_trimmed, //seqLine,
-				r.getBaseQualityHeader(),//qualHeaderPrefix,
-				qualstring_trimmed // qualLine
-				);
-
-		if(writer != null) //mostly here for testing ie to be able to call method w/o writer
-			writer.write(trimmed);
-
-		return trimmed;
-	}
-
-
-
-
-	/**
-	 * Deals with integer options that can take X:Y values ; also check that given values are >= 0 
-	 * @param optionName name of the option (for error messages)
-	 * @param optionValue as given by user ; if blank returned array is empty
-	 * @param messages the error message list to use in case of error
-	 * @param failIfPEwithSingleBarcode 
-	 * @return an int array with the two parsed values for read_1 and read_2. 
-	 * Array is empty is nothing should be made ie in such case one should check if messages size increased
-	 */
-	private int[] setOption(String optionName, String optionValue, ArrayList<String> messages, boolean failIfPEwithSingleBarcode) {
-		
-		int[] arr = new int[2];
-		
-		if(htsjdk.samtools.util.StringUtil.isBlank(optionValue))
-			return arr;
-		
-		String [] values = new String[2]; 
-		if(optionValue.contains(":")){
-			 if(!RUNNING_PAIRED_END || (failIfPEwithSingleBarcode && BARCODE_READ_POS!=BarcodePosition.BOTH)){
-				messages.add("Invalid value used for "+optionName+" : "+optionValue +". The X:Z synthax can only be used for paired-end data with BPOS=BOTH");
-				return arr ;
-			}
-			//split values
-			values = optionValue.split(":");
-			if(values.length!=2){
-				messages.add("Invalid value used for "+optionName+" : "+optionValue +". The X:Z synthax can contain only a single ':' ");
-				return arr;
-			}
-		}
-		else{
-			values[0] = optionValue;
-			values[1] = optionValue;
-		}
-		
-		//now convert to int
-		int optionRead1 = -1; 
-		int optionRead2 = -1;
-		try{
-			optionRead1 = Integer.parseInt(values[0]);
-		}catch (NumberFormatException e) {
-			messages.add("Invalid value used for "+optionName+" : "+optionValue +" => "+values[0]+" is not an integer");
-		}
-		
-		try{
-			optionRead2 = Integer.parseInt(values[1]);
-		}catch (NumberFormatException e) {
-			messages.add("Invalid value used for "+optionName+" : "+optionValue +" => "+values[1]+" is not an integer");
-		}
-		
-		log.debug(optionName+" => [1]="+optionRead1+" ; [2]="+optionRead2);
-		
-		if(optionRead1<0 || optionRead2<0)
-			messages.add("Invalid value used for "+optionName+" : "+optionValue +" => value(s) must be >= 0.");		
-		
-		return new int []{optionRead1, optionRead2};
-	}
-
-
-	private File setFile(String fnameOrPath) {
-		if(fnameOrPath.contains("/")){
-			//it is a path, use file path as provided
-			return new File(fnameOrPath);
-		}
-		else{
-			//it is just a name
-			return new File(OUTPUT_DIR, fnameOrPath);
-		}
-
-	}
-
-	
-	/**
-	 * @param args
-	 */
-	public static void main(final String[] argv) {
-		new Jeclipper().instanceMainWithExit(argv); //eventually execute the doWork() method
+		return rec.getReadLength();
 	}
 	
 	
-
+	
 }

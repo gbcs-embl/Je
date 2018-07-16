@@ -46,6 +46,8 @@ import org.embl.gbcs.embase.api.Queries;
 import org.embl.gbcs.embase.api.exception.EmBASEConnectionException;
 import org.embl.gbcs.embase.api.model.Item;
 import org.embl.gbcs.embase.api.model.NGSLibrary;
+import org.embl.gbcs.je.ApplicationConfiguration;
+import org.embl.gbcs.je.BarcodeMatch;
 import org.embl.gbcs.je.Je;
 import org.embl.gbcs.je.JeUtils;
 import org.slf4j.Logger;

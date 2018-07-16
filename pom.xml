@@ -3,7 +3,7 @@
 	<modelVersion>4.0.0</modelVersion>
 	<groupId>Je</groupId>
 	<artifactId>Je</artifactId>
-	<version>1.2</version>
+	<version>2.0.RC</version>
 	<name>Je</name>
 	<description>Je provides command line utilities to deal with barcoded FASTQ files with or without Unique Molecular Index (UMI)</description>
 
@@ -233,34 +233,9 @@
 		<dependency>
 			<groupId>org.embl.cg.utilitytools</groupId>
 			<artifactId>ut_utils</artifactId>
-			<version>1.0</version>
+			<version>1.0.1</version>
 		</dependency>
-		
-		<!-- <dependency> -->
-		<!-- <groupId>net.sf</groupId> -->
-		<!-- <artifactId>picard</artifactId> -->
-		<!-- <version>1.140</version> -->
-		<!-- </dependency> -->
-		<!-- <dependency> -->
-		<!-- <groupId>net.sf</groupId> -->
-		<!-- <artifactId>htsjdk</artifactId> -->
-		<!-- <version>1.140</version> -->
-		<!-- </dependency> -->
-
-		<dependency>
-			<groupId>net.sf</groupId>
-			<artifactId>picard</artifactId>
-			<version>1.140custom</version>
-
-		</dependency>
-		<dependency>
-			<groupId>net.sf</groupId>
-			<artifactId>htsjdk</artifactId>
-			<version>1.140custom</version>
-
-		</dependency>
-
-
+	
 		<dependency>
 			<groupId>org.slf4j</groupId>
 			<artifactId>slf4j-api</artifactId>
@@ -290,6 +265,11 @@
 			<artifactId>junit</artifactId>
 			<version>4.11</version>
 			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.broadinstitute</groupId>
+			<artifactId>picard</artifactId>
+			<version>2.9.4</version>
 		</dependency>
 	</dependencies>
 

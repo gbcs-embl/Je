@@ -40,14 +40,14 @@ public class JeclipperTest {
 	private static Logger log = Logger.getLogger(JeclipperTest.class);
 
 
-	//@After
+	@After
 	public void cleanUpResultFiles(){
 		try {
 			File f1 = new File(JeclipperTest.class.getResource("file_1_sequence.txt").toURI());
 
 			File outdir = f1.getParentFile();
 			String [] fnames = new String []{
-					"file_1_sequence_out.txt", "file_2_sequence_out.txt"
+					"out_1.txt", "out_2.txt"
 			};
 
 			for (String fname : fnames) {
@@ -80,21 +80,19 @@ public class JeclipperTest {
 			File outdir = f1.getParentFile();
 
 			String[] argv = new String[] {
-					"F1="+f1.getAbsolutePath(), 
-					"F2="+f2.getAbsolutePath(),
-					"BPOS=BOTH",
-					"LEN=10", 
-					"XT=0", 
-					"ZT=0",
-					"OF1="+new File(f1.getParentFile(), "file_1_sequence_out.txt").getAbsolutePath(), 
-					"OF2="+new File(f1.getParentFile(), "file_2_sequence_out.txt").getAbsolutePath(),
+					"F="+f1.getAbsolutePath(), 
+					"F="+f2.getAbsolutePath(),
+					"RL=<BARCODE1:12><SAMPLE1:x>",
+					"RL=<BARCODE2:8><SAMPLE2:x>",
+					"OL=1:B1B2:S1",
+					"OL=2:B1B2:S2",
 					"O="+outdir.getAbsolutePath(), 
 					"GZ=false"
 					
 			};
 
 			Jeclipper j = new Jeclipper();
-			Assert.assertFalse(j.TEST_MODE_STOP_AFTER_PARSING);
+			Assert.assertFalse(Jeclipper.TEST_MODE_STOP_AFTER_PARSING);
 			
 			//parse
 			Assert.assertEquals(0, j.instanceMain(argv));

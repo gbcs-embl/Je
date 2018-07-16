@@ -51,6 +51,9 @@ import org.embl.cg.utilitytools.utils.ExceptionUtil;
 import org.embl.cg.utilitytools.utils.FileUtil;
 import org.embl.cg.utilitytools.utils.StringUtil;
 import org.embl.gbcs.embase.api.model.NGSLibrary;
+import org.embl.gbcs.je.ApplicationConfiguration;
+import org.embl.gbcs.je.BarcodeMatch;
+import org.embl.gbcs.je.JemultiplexerFastqWriterFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

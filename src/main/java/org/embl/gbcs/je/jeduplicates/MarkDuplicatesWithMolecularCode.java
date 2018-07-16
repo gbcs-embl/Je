@@ -54,6 +54,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.regex.Pattern;
 
 import org.apache.commons.lang3.StringUtils;
 import org.embl.cg.utilitytools.utils.FileUtil;
@@ -80,8 +81,8 @@ import picard.sam.markduplicates.util.ReadEndsForMarkDuplicatesMap;
 				+ " account molecular barcodes (Unique Molecular Identifiers or UMIs) found in read header. " 
 				+ "All records are then either written to the output file with the duplicate records flagged or trashed.\n"
 				+"Example :\n"
-				+"\t je markdupes INPUT=file_with_dupes.bam OUPUT=result.bam MM=1", 
-		usageShort = "je markdupes INPUT=file_with_dupes.bam OUPUT=result.bam MM=1", 
+				+"\t je markdupes INPUT=file_with_dupes.bam OUTPUT=result.bam MM=1", 
+		usageShort = "je markdupes INPUT=file_with_dupes.bam OUTPUT=result.bam MM=1", 
 		programGroup = SamOrBam.class
 		)
 public class MarkDuplicatesWithMolecularCode extends AbstractMarkDuplicatesCommandLineProgram {
@@ -210,8 +211,6 @@ public class MarkDuplicatesWithMolecularCode extends AbstractMarkDuplicatesComma
 	private int numDuplicateIndices = 0;
 
 	private LibraryIdGenerator libraryIdGenerator = null; // this is initialized in buildSortedReadEndLists
-
-	
 	
 	public MarkDuplicatesWithMolecularCode() {
 		super();
@@ -223,6 +222,42 @@ public class MarkDuplicatesWithMolecularCode extends AbstractMarkDuplicatesComma
 		new MarkDuplicatesWithMolecularCode().instanceMainWithExit(args);
 	}
 
+	
+	
+	private void initReadNameRegexFromRead() {
+		
+		//teh base regex to which will had as many ":[ATGCUNatgcun]+" slots as needed
+		String baseRegex = "(?:.*:)?([0-9]+)[^:]*:([0-9]+)[^:]*:([0-9]+)[^:]*";
+		
+		final SamHeaderAndIterator headerAndIterator = openInputs();
+		final CloseableIterator<SAMRecord> iterator = headerAndIterator.iterator;
+		SAMRecord rec = null;
+		//peek a record
+		while (iterator.hasNext()) {
+			rec = iterator.next();
+			break;
+		}
+		iterator.close();
+		//get read name
+		String name = rec.getReadName();
+		String [] tokens = name.split(":");
+		//start from end : how many slots match a barcode ?
+		int n=0;
+		for(int p = tokens.length -1 ; p>0 ;p-- ){
+			if(Pattern.matches("[ATGCUNatgcun]+", tokens[p]))
+				n++;
+		}
+		
+		for(int i = 0 ; i< n; i++){
+			baseRegex += ":[ATGCUNatgcun]+";
+		}
+		
+		
+		log.debug("READ_NAME_REGEX initialized to "+baseRegex);
+		this.READ_NAME_REGEX = baseRegex;
+	}
+	
+	
 	/**
 	 * Main work method.  Reads the BAM file once and collects sorted information about
 	 * the 5' ends of both ends of each read (or just one end in the case of pairs).
@@ -234,6 +269,23 @@ public class MarkDuplicatesWithMolecularCode extends AbstractMarkDuplicatesComma
 		IOUtil.assertFileIsWritable(OUTPUT);
 		IOUtil.assertFileIsWritable(METRICS_FILE);
 
+		
+		/*
+		 * SET READ_NAME_REGEX to a proper value IF it was not given in the command line
+		 * => Reasoning on command line for READ_NAME_REGEX option
+		 */
+		if(!this.getCommandLine().contains("READ_NAME_REGEX")){
+			/*
+			 * we reset the default READ_NAME_REGEX to accommodate the additional barcode slots added to the read name
+			 * but only it the separator used was ':' and SLOTS or TSLOTS are not null
+			 */
+			if(this.SPLIT_CHAR.equals(':')){ 
+				initReadNameRegexFromRead();
+			}
+			//else the default regex should still work
+		}
+		
+		
 		/*
 		 * Molecular Barcode Support 
 		 * Initialize the MolecularBarcodeFinder
@@ -361,8 +413,7 @@ public class MarkDuplicatesWithMolecularCode extends AbstractMarkDuplicatesComma
 					++metrics.READ_PAIRS_EXAMINED; // will need to be divided by 2 at the end
 				}
 
-
-				if (recordInFileIndex == nextDuplicateIndex) {
+ 				if (recordInFileIndex == nextDuplicateIndex) {
 					rec.setDuplicateReadFlag(true);
 
 					// Update the duplication metrics
@@ -419,6 +470,7 @@ public class MarkDuplicatesWithMolecularCode extends AbstractMarkDuplicatesComma
 			} 
 			
 			
+
 			if (!this.REMOVE_DUPLICATES || !rec.getDuplicateReadFlag()) {
 				if (PROGRAM_RECORD_ID != null) {
 					rec.setAttribute(SAMTag.PG.name(), chainedPgIds.get(rec.getStringAttribute(SAMTag.PG.name())));
@@ -767,7 +819,7 @@ public class MarkDuplicatesWithMolecularCode extends AbstractMarkDuplicatesComma
 			ReadEndsForMarkDuplicatesWithMolecularCode best = null;
 
 			/** All read ends should have orientation FF, FR, RF, or RR **/
-			/** we only look up the best one if this is not the UNDEF group OR UDEF is the only returned group**/
+			/** we only look up the best one if this is not the UNDEF group OR UNDEF is the only returned group**/
 			if(!isUNDEFGroup || undef_is_only_group){
 				for (final ReadEndsForMarkDuplicatesWithMolecularCode end : list) {
 					if (end.score > maxScore || best == null) {
@@ -786,7 +838,7 @@ public class MarkDuplicatesWithMolecularCode extends AbstractMarkDuplicatesComma
 			}
 
 			if (this.READ_NAME_REGEX != null) {
-				AbstractMarkDuplicatesCommandLineProgram.trackOpticalDuplicates(list, opticalDuplicateFinder, libraryIdGenerator);
+				AbstractMarkDuplicatesCommandLineProgram.trackOpticalDuplicates(list, best, opticalDuplicateFinder, libraryIdGenerator);
 			}
 		}
 	}
@@ -844,6 +896,7 @@ public class MarkDuplicatesWithMolecularCode extends AbstractMarkDuplicatesComma
 							best = end;
 						}
 					}
+
 				}
 				
 				//flag all reads duplicates but best

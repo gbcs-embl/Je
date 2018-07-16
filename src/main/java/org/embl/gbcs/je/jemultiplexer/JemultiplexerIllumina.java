@@ -37,6 +37,7 @@ import java.util.Map;
 
 import org.apache.commons.lang3.StringUtils;
 import org.embl.cg.utilitytools.utils.StringUtil;
+import org.embl.gbcs.je.BarcodeMatch;
 import org.embl.gbcs.je.Je;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
