@@ -3,11 +3,12 @@
     <macros>
         <import>macros.xml</import>
     </macros>
+    <expand macro="requirements" />
     <stdio>
         <exit_code range="1:" level="fatal" description="Tool exception" />
     </stdio>
-    <version_command>echo '1.0'</version_command>
-    <command interpreter="bash">
+    <expand macro="version_command" />
+    <command>
 <![CDATA[
     je clip
 
@@ -85,8 +86,7 @@
         </test>
     </tests>
 
-
-  <help>
+    <help>
 <![CDATA[
 **What it does**
 
@@ -242,6 +242,6 @@ This is an exhaustive list of options::
     Default value: null.
 
 ]]>
-  </help>
-
+    </help>
+    <expand macro="citations"/>
 </tool>

@@ -5,7 +5,7 @@ description: The Je tool suite
 name: je
 owner: gbcs-embl-heidelberg
 homepage_url: http://gbcs.embl.de/Je
-remote_repository_url: https://git.embl.de/grp-gbcs/Je/tree/master/src/galaxy
+remote_repository_url: https://github.com/gbcs-embl/Je/tree/master/src/galaxy
 auto_tool_repositories:
   name_template: "{{ tool_id }}"
   description_template: "Wrapper for Je tool: {{ tool_name }}"
