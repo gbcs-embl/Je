@@ -646,7 +646,7 @@ public class JemultiplexerIllumina extends AbstractJemultiplexer {
 			if(INDEX_FILE2.getAbsolutePath().equals(FASTQ_FILE1.getAbsolutePath()))
 				messages.add("FASTQ_FILE1 and INDEX_FILE2 are the same file !");
 			
-			if(INDEX_FILE2.getAbsolutePath().equals(FASTQ_FILE2.getAbsolutePath()))
+			if(RUNNING_PAIRED_END && INDEX_FILE2.getAbsolutePath().equals(FASTQ_FILE2.getAbsolutePath()))
 				messages.add("FASTQ_FILE2 and INDEX_FILE2 are the same file !");
 			
 			
