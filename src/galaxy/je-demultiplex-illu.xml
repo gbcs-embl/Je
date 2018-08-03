@@ -29,7 +29,7 @@
     #end if
 
     @common_options_cmd@
-    @demultiplexer_common_options@
+    @demultiplexer_common_options_cmd@
     @demultiplexer_common_output_options_cmd@
     @demultiplexer_common_outputs_cmd@
 ]]>
