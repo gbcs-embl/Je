@@ -188,8 +188,7 @@
             <when value="file">
                 <param name="BARCODE_FILE" type="data" format="tabular,txt" label="Barcode List"
                     help="Barcode list format: one sample per line. First column is sample name and second is the
-                    barcode, separated by tab or space. A third and fourth column can be used to specify the resulting
-                    file names. See help below."/>
+                    barcode, separated by tab or space. See help below."/>
             </when>
 
             <when value="text">
