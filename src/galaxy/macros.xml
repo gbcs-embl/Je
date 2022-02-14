@@ -1,6 +1,6 @@
 <macros>
 
-    <token name="@VERSION_STRING@">1.2.1</token>
+    <token name="@VERSION_STRING@">1.2.2</token>
     <xml name="requirements">
         <requirements>
             <requirement type="package" version="1.2">je-suite</requirement>
@@ -10,17 +10,56 @@
         <version_command>je version 2&gt;&amp;1 | tail -n 1</version_command>
     </xml>
 
-    <token name="@single_or_paired_cmd@">
+    <token name="@link_inputs@">
+        #set $compress = False
         #if str( $library.type ) == "single":
-            F1=${library.input_1}
+            #if $library.input_1.is_of_type("fastq.gz") or $library.input_1.is_of_type("fastqsanger.gz"):
+                #set $compress = True
+                #set $F1 = 'input_1.fq.gz'
+                ln -s '$library.input_1' $F1;
+            #else:
+                #set $F1 = $library.input_1
+            #end if
         #elif str( $library.type ) == "paired":
-            F1=${library.input_1}
-            F2=${library.input_2}
-            SAME_HEADERS=${library.SAME_HEADERS}
+            #if $library.input_1.is_of_type("fastq.gz") or $library.input_1.is_of_type("fastqsanger.gz"):
+                #set $compress = True
+                #set $F1 = 'input_1.fq.gz'
+                ln -s '$library.input_1' $F1;
+            #else:
+                #set $F1 = $library.input_1
+            #end if
+            #if $library.input_2.is_of_type("fastq.gz") or $library.input_2.is_of_type("fastqsanger.gz"):
+                #set $compress = True
+                #set $F2 = 'input_2.fq.gz'
+                ln -s '$library.input_2' input_2.fq.gz;
+            #else:
+                #set $F2 = $library.input_2
+            #end if
         #else
             ## prepare paired-end collection
-            F1=${library.input_1.forward}
-            F2=${library.input_1.reverse}
+            #if $library.input_1.forward.is_of_type("fastq.gz") or $library.input_1.forward.is_of_type("fastqsanger.gz"):
+                #set $compress = True
+                #set $F1 = 'input_1.fq.gz'
+                ln -s '$library.input_1.forward' input_1.fq.gz;
+            #else:
+                #set $F1 = $library.input_1.forward
+            #end if
+            #if $library.input_1.reverse.is_of_type("fastq.gz") or $library.input_1.reverse.is_of_type("fastqsanger.gz"):
+                #set $compress = True
+                #set $F2 = 'input_2.fq.gz'
+                ln -s '$library.input_1.reverse' input_2.fq.gz;
+            #else:
+                #set $F2 = $library.input_1.reverse
+            #end if
+        #end if
+    </token>
+
+     <token name="@single_or_paired_cmd@">
+        #if str( $library.type ) == "single":
+            F1=$F1
+        #else:
+            F1=$F1
+            F2=$F2
             SAME_HEADERS=${library.SAME_HEADERS}
         #end if
     </token>
@@ -311,7 +350,6 @@ ${from_text_area}</configfile>
         #else:
             RCHAR=null
         #end if
-        GZ=${GZ}
         OUTPUT_DIR=results
     </token>
     <xml name="common_options">
@@ -325,9 +363,6 @@ ${from_text_area}</configfile>
             help="Set to empty or null for no replacement."
             value=":"/>
 
-        <param name="GZ" type="hidden" label="Compress output (GZ)"
-            help="will result in fastq.gz files."
-            value="false"/>
     </xml>
 
     <token name="@demultiplexer_common_outputs_cmd@">

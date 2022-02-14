@@ -10,6 +10,7 @@
     <expand macro="version_command" />
     <command>
 <![CDATA[
+    @link_inputs@
     je demultiplex
 
     ## Fastq inputs
@@ -27,6 +28,7 @@
 
     @demultiplexer_common_output_options_cmd@
     @demultiplexer_common_outputs_cmd@
+    GZ=$compress
 
 ]]>
     </command>

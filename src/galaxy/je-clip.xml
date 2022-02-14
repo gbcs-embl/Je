@@ -1,4 +1,4 @@
-<tool id="je_clip" name="Je-Clip" version="@VERSION_STRING@">
+<tool id="je_clip" name="Je-Clip - Test" version="@VERSION_STRING@">
     <description>clips Unique Molecular Identifiers (UMIs) from fastq files</description>
     <macros>
         <import>macros.xml</import>
@@ -10,6 +10,7 @@
     <expand macro="version_command" />
     <command>
 <![CDATA[
+    @link_inputs@
     je clip
 
     ## Fastq inputs
@@ -29,7 +30,7 @@
     #if str( $library.type ) != "single":
         OF2=${OF2}
     #end if
-
+    GZ=$compress
     FORCE=true
 ]]>
     </command>
@@ -49,9 +50,7 @@
             falsevalue="false"
             checked="true"
         />
-
         <expand macro="common_options"/>
-
 
     </inputs>
     <outputs>
